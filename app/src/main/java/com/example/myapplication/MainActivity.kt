@@ -481,7 +481,6 @@ class MainActivity : AppCompatActivity() {
         }
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-
             .build()
         try {
             scanner.startScan(

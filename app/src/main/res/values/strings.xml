@@ -28,5 +28,5 @@
     <string name="taking_longer_than_expected_may_disconnect">⚠️ Taking longer than expected, may disconnect...</string>
     <string name="connection_taking_longer_than_expected">⚠️ Connection taking longer than expected...</string>
     <string name="button_has_been_clicked">Button has been clicked, connection shall commence.</string>
-    <string name="rssi">RSSI: </string>
+    <string name="rssi">Signal_Strength: %1$d dBm</string>
 </resources>
