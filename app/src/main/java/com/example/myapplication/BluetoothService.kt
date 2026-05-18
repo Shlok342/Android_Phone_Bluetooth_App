@@ -556,7 +556,7 @@ class BluetoothService : Service() {
             return true
         }
 
-        // 🔥 Allow UNKNOWN custom characteristics too
+        // Allow UNKNOWN custom characteristics too
         // if they support notify/indicate
 
         return uuid.startsWith("0000").not()

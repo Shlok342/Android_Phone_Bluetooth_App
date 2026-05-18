@@ -304,7 +304,7 @@ class MainActivity : AppCompatActivity() {
         deviceAdapter = DeviceAdapter(
             devices = deviceList,
             deviceMap = deviceMap,
-            onStopScanRequested = { stopBleScan() }, // ✅ Passes your activity's stop function down
+            onStopScanRequested = { stopBleScan() }, //
             connectCallback = { device -> connectToDevice(device) }
         )
         listView.adapter = deviceAdapter
@@ -328,7 +328,7 @@ class MainActivity : AppCompatActivity() {
         if (missing.isEmpty()) {
             // CASE 1: Permissions are already good!
             startBluetoothService()
-            startBleScan() // 🌟 FIX: Trigger the automatic startup scan here!
+            startBleScan()
         } else {
             // CASE 2: Show the permission pop-up dialog
             requestPermissionsLauncher.launch(missing.toTypedArray())
@@ -354,7 +354,7 @@ class MainActivity : AppCompatActivity() {
 
         if (allGranted) {
             startBluetoothService()
-            startBleScan() // 🌟 FIX: Automatically start scanning the microsecond they click "Allow"
+            startBleScan()
         } else {
             Toast.makeText(this, "Permissions denied. Cannot scan.", Toast.LENGTH_SHORT).show()
         }
