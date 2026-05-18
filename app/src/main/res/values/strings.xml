@@ -1,0 +1,32 @@
+<resources>
+    <string name="app_name" translatable="false">My Application</string>
+    <string name="nearby_ble_devices" translatable="false">Nearby BLE Devices 📡</string>
+    <string name="disconnect" translatable="false">Disconnect ❌</string>
+    <string name="stop_scan" translatable="false">Stop Scan ⏹️</string>
+    <string name="refresh" translatable="false">Refresh 🔄</string>
+    <string name="permission" translatable="false">Permission Denied❌ </string>
+    <string name="device_name" translatable="false">Device Name</string>
+    <string name="device_address" translatable="false">00:00:00:00</string>
+    <string name="device_signal">🟢 Strong (-50 dBm)</string>
+    <string name="connect">Connect</string>
+    <string name="pairing">⏳ Pairing</string>
+    <string name="bonded_connecting">🔗 Bonded! Connecting</string>
+    <string name="pairing_failed_or_removed">❌ Pairing failed or removed</string>
+    <string name="disconnected">🔴 Disconnected</string>
+    <string name="not_connected">Not connected</string>
+    <string name="missing_bluetooth_connect_permission">❌ Missing BLUETOOTH_CONNECT permission</string>
+    <string name="initiating_pairing">⏳ Initiating pairing</string>
+    <string name="connected">🟢 Connected: %1$s </string>
+    <string name="connecting">⏳ Connecting to %1$s</string>
+    <string name="paired_connecting">🔐 Paired! Connecting...</string>
+    <string name="pairing_new">🔄 Pairing...</string>
+    <string name="pairing_failed">❌ Pairing failed</string>
+    <string name="connectedd">🟢 Connected: %1$s</string>
+    <string name="notify_colour_hex">#7BC8F6</string>
+    <string name="live_data">Live Data 📡</string>
+    <string name="clear">Clear</string>
+    <string name="taking_longer_than_expected_may_disconnect">⚠️ Taking longer than expected, may disconnect...</string>
+    <string name="connection_taking_longer_than_expected">⚠️ Connection taking longer than expected...</string>
+    <string name="button_has_been_clicked">Button has been clicked, connection shall commence.</string>
+    <string name="rssi">RSSI: </string>
+</resources>
