@@ -29,4 +29,7 @@
     <string name="connection_taking_longer_than_expected">⚠️ Connection taking longer than expected...</string>
     <string name="button_has_been_clicked">Button has been clicked, connection shall commence.</string>
     <string name="rssi">Signal_Strength: %1$d dBm</string>
+    <string name="BLETABBUTTON">BLE</string>
+    <string name="CLASSICTABBUTTON">Classic</string>
+    <string name="state_of_classic_devices">Classic: Idle</string>
 </resources>

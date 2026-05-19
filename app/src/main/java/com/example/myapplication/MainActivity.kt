@@ -18,10 +18,16 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import no.nordicsemi.android.support.v18.scanner.*
 import androidx.core.graphics.toColorInt
+import android.content.Context
 data class BleDeviceItem(
     val name: String,
     val address: String,
     var rssi: Int
+)
+data class ClassicDeviceItem(
+    val name: String,
+    val address: String,
+    val type: Int
 )
 class MainActivity : AppCompatActivity() {
 
@@ -35,6 +41,82 @@ class MainActivity : AppCompatActivity() {
     private var delayedStatusRunnable: Runnable? = null
     private val deviceList = mutableListOf<BleDeviceItem>()
     private val deviceMap = mutableMapOf<String, BluetoothDevice>()
+    // ─── Classic State ────────────────────────────────────────────────────────
+    private var activeTab = "BLE" // "BLE" or "CLASSIC"
+    private var classicServiceStarted = false
+    private val classicDeviceList = mutableListOf<ClassicDeviceItem>()
+    private val classicDeviceMap = mutableMapOf<String, BluetoothDevice>()
+    private lateinit var classicAdapter: ClassicDeviceAdapter
+    private lateinit var classicStatusText: TextView
+    private lateinit var bleTabBtn: Button
+    private lateinit var classicTabBtn: Button
+    private lateinit var classicListView: ListView
+
+    // ─── Classic Service Binding ──────────────────────────────────────────────
+    private var classicService: ClassicBluetoothService? = null
+    private var isClassicBound = false
+
+    private val classicConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            classicService = (binder as ClassicBluetoothService.LocalBinder).getService()
+            isClassicBound = true
+            classicService?.connectionManager?.onStateChanged = { state, address ->
+                runOnUiThread { updateClassicStatusUi(state, address) }
+            }
+
+            classicService?.connectionManager?.onDataReceived = { data ->
+                runOnUiThread { showDataBottomSheet(data) }
+            }
+
+            classicService?.connectionManager?.let {
+                updateClassicStatusUi(
+                    it.currentState,
+                    it.connectedDeviceAddress ?: ""
+                )
+            }
+            if (activeTab == "CLASSIC") startClassicScan()
+        }
+        override fun onServiceDisconnected(name: ComponentName) {
+            classicService = null
+            isClassicBound = false
+        }
+    }
+
+    // ─── Classic Scan (BroadcastReceiver) ────────────────────────────────────
+    @Suppress("UnusedPrivateMember")
+    private val classicScanReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+                    device ?: return
+
+                    // ✅ Filter: only Classic or Dual, never BLE-only
+                    val type = device.type
+                    if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC && type != BluetoothDevice.DEVICE_TYPE_DUAL) return
+
+                    val address = device.address
+                    if (classicDeviceMap.containsKey(address)) return
+
+                    val name = try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                        ) "Unknown" else device.name ?: "Unknown"
+                    } catch (_: SecurityException) { "Unknown" }
+
+                    classicDeviceMap[address] = device
+                    classicDeviceList.add(ClassicDeviceItem(name, address, type))
+                    runOnUiThread { classicAdapter.notifyDataSetChanged() }
+                }
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Classic scan done", Toast.LENGTH_SHORT).show() }
+                }
+            }
+        }
+    }
 
     // ─── Bottom Sheet for Live Data ───────────────────────────────────────────
     private var bottomSheetDialog: BottomSheetDialog? = null
@@ -247,6 +329,15 @@ class MainActivity : AppCompatActivity() {
 
         setupUi()
         checkPermissionsAndStartService()
+        val filter = IntentFilter().apply {
+
+            addAction(BluetoothDevice.ACTION_FOUND)
+
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+
+        registerReceiver(classicScanReceiver, filter)
+
     }
 
     private fun setupUi() {
@@ -271,20 +362,22 @@ class MainActivity : AppCompatActivity() {
         val refreshBtn = Button(this).apply {
             text = getString(R.string.refresh)
             setOnClickListener {
-                pendingRefresh = true
-
-                stopBleScan()
-
-                bluetoothService?.disconnect()
+                if (activeTab == "BLE") { pendingRefresh = true; stopBleScan(); bluetoothService?.disconnect() }
+                else { stopClassicScan(); startClassicScan() }
             }
         }
         val stopBtn = Button(this).apply {
             text = getString(R.string.stop_scan)
-            setOnClickListener { stopBleScan() }
+            setOnClickListener {
+                if (activeTab == "BLE") stopBleScan() else stopClassicScan()
+            }
         }
         val disconnectBtn = Button(this).apply {
             text = getString(R.string.disconnect)
-            setOnClickListener { bluetoothService?.disconnect() }
+            setOnClickListener {
+                if (activeTab == "BLE") bluetoothService?.disconnect()
+                else classicService?.connectionManager?.disconnect()
+            }
         }
 
         btnRow.addView(refreshBtn, LinearLayout.LayoutParams(0, -2, 1f))
@@ -293,6 +386,49 @@ class MainActivity : AppCompatActivity() {
 
         layout.addView(btnRow)
         layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
+        // ─── Tab buttons ──────────────────────────────────────────────────────────
+        bleTabBtn = Button(this).apply { text = context.getString(R.string.BLETABBUTTON) }
+        classicTabBtn = Button(this).apply { text = context.getString(R.string.CLASSICTABBUTTON) }
+
+        val tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tabRow.addView(bleTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        tabRow.addView(classicTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
+
+// ─── Classic status + list ────────────────────────────────────────────────
+        classicStatusText = TextView(this).apply {
+            text = context.getString(R.string.state_of_classic_devices)
+            textSize = 16f
+            setPadding(20, 10, 20, 10)
+            visibility = View.GONE
+        }
+        classicListView = ListView(this).apply { visibility = View.GONE }
+        classicAdapter = ClassicDeviceAdapter(classicDeviceList, classicDeviceMap) { device ->
+            classicService?.connectionManager?.connect(device)
+        }
+        classicListView.adapter = classicAdapter
+
+// Insert tab row BEFORE the existing btnRow in layout
+// Add these views to layout:
+        layout.addView(tabRow)
+        layout.addView(classicStatusText)
+        layout.addView(classicListView, LinearLayout.LayoutParams(-1, 0, 1f))
+
+// ─── Tab switching logic ──────────────────────────────────────────────────
+        bleTabBtn.setOnClickListener {
+            activeTab = "BLE"
+            statusText.visibility = View.VISIBLE
+            listView.visibility = View.VISIBLE
+            classicStatusText.visibility = View.GONE
+            classicListView.visibility = View.GONE
+        }
+        classicTabBtn.setOnClickListener {
+            activeTab = "CLASSIC"
+            statusText.visibility = View.GONE
+            listView.visibility = View.GONE
+            classicStatusText.visibility = View.VISIBLE
+            classicListView.visibility = View.VISIBLE
+            startClassicScan()
+        }
 
         setContentView(layout)
         ViewCompat.setOnApplyWindowInsetsListener(layout) { v, insets ->
@@ -328,6 +464,7 @@ class MainActivity : AppCompatActivity() {
         if (missing.isEmpty()) {
             // CASE 1: Permissions are already good!
             startBluetoothService()
+            startClassicBluetoothService()
             startBleScan()
         } else {
             // CASE 2: Show the permission pop-up dialog
@@ -345,7 +482,66 @@ class MainActivity : AppCompatActivity() {
         startForegroundService(intent)
         bindService(intent, serviceConnection, BIND_AUTO_CREATE)
     }
+    private fun startClassicBluetoothService() {
+        if (classicServiceStarted) return
 
+        classicServiceStarted = true
+        val intent = Intent(this, ClassicBluetoothService::class.java).apply { `package` = packageName }
+        startForegroundService(intent)
+        bindService(intent, classicConnection, BIND_AUTO_CREATE)
+    }
+
+    private fun startClassicScan() {
+
+        val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (!adapter.isEnabled) { Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show(); return }
+        classicDeviceList.clear()
+        classicDeviceMap.clear()
+        classicAdapter.notifyDataSetChanged()
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+
+            if (adapter.isDiscovering) {
+                adapter.cancelDiscovery()
+            }
+
+        }
+        try {
+            val started = adapter.startDiscovery()
+            Toast.makeText(this, if (started) "Classic scan started ✅" else "Classic scan failed to start ❌", Toast.LENGTH_SHORT).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(this, "Permission missing for Classic scan", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopClassicScan() {
+        try { (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter.cancelDiscovery() } catch (_: SecurityException) {}
+    }
+
+    private fun updateClassicStatusUi(state: ClassicState, address: String) {
+        val name =
+            classicService
+                ?.connectionManager
+                ?.connectedDeviceName
+                ?: "Device"
+        classicStatusText.text = when (state) {
+            ClassicState.IDLE         -> "Classic: Idle"
+            ClassicState.CONNECTING   -> "Classic: Connecting to $name..."
+            ClassicState.CONNECTED    -> "🟢 Classic: Connected $name ($address)"
+            ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
+            ClassicState.FAILED       -> "❌ Classic: Failed"
+        }
+        if (state == ClassicState.DISCONNECTED || state == ClassicState.FAILED) {
+            bottomSheetDialog?.dismiss()
+            bottomSheetDialog = null
+            bottomSheetList = null
+        }
+    }
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -527,10 +723,17 @@ class MainActivity : AppCompatActivity() {
         delayedStatusRunnable?.let {
             uiHandler.removeCallbacks(it)
         }
+        unregisterReceiver(classicScanReceiver)
+        classicService?.connectionManager?.onStateChanged = null
+        classicService?.connectionManager?.onDataReceived = null
         stopBleScan()
         if (isBound) {
             unbindService(serviceConnection)
             isBound = false
+        }
+        if (isClassicBound) {
+            unbindService(classicConnection)
+            isClassicBound = false
         }
     }
     override fun onStart() {
@@ -561,6 +764,8 @@ class DeviceAdapter(
             view.context.getString(R.string.rssi, item.rssi)
 
         view.findViewById<Button>(R.id.connectBtn).apply {
+            isEnabled = false       // ADD THIS
+            alpha = 0.4f            // ADD THIS
             isAllCaps = false
 
             val addressLine = item.address
@@ -581,6 +786,31 @@ class DeviceAdapter(
         }
 
 
+        return view
+    }
+}
+class ClassicDeviceAdapter(
+    private val devices: List<ClassicDeviceItem>,
+    private val deviceMap: Map<String, BluetoothDevice>,
+    private val connectCallback: (BluetoothDevice) -> Unit
+) : BaseAdapter() {
+    override fun getCount() = devices.size
+    override fun getItem(p: Int) = devices[p]
+    override fun getItemId(p: Int) = p.toLong()
+    override fun getView(p: Int, v: View?, parent: ViewGroup): View {
+        val view = v ?: LayoutInflater.from(parent.context).inflate(R.layout.device_item, parent, false)
+        val item = devices[p]
+        view.findViewById<TextView>(R.id.deviceName).text = item.name
+        view.findViewById<TextView>(R.id.deviceAddress).text = item.address
+        view.findViewById<TextView>(R.id.deviceSignal).text =
+            if (item.type == BluetoothDevice.DEVICE_TYPE_DUAL) "Dual (Classic+BLE)" else "Classic"
+        view.findViewById<Button>(R.id.connectBtn).apply {
+            isAllCaps = false
+            setOnClickListener {
+                deviceMap[item.address]?.let { connectCallback(it) }
+                    ?: Toast.makeText(context, "Device not found, try rescanning", Toast.LENGTH_SHORT).show()
+            }
+        }
         return view
     }
 }
