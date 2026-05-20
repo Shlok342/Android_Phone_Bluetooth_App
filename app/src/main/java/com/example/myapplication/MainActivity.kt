@@ -64,8 +64,16 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { updateClassicStatusUi(state, address) }
             }
 
-            classicService?.connectionManager?.onDataReceived = { data ->
-                runOnUiThread { showDataBottomSheet(data) }
+            classicService?.connectionManager?.onMessageReceived = { message ->
+                val display = when (message) {
+                    is ClassicMessage.Text ->
+                        "[Classic] ${message.raw}  |  ${message.hex}"
+                    is ClassicMessage.Binary ->
+                        "[Classic Binary] ${message.bytes.size} bytes"
+                    is ClassicMessage.ParseError ->
+                        "[Parse Error] ${message.reason}"
+                }
+                runOnUiThread { showDataBottomSheet(display) }
             }
 
             classicService?.connectionManager?.let {
@@ -535,6 +543,10 @@ class MainActivity : AppCompatActivity() {
             ClassicState.CONNECTED    -> "🟢 Classic: Connected $name ($address)"
             ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
             ClassicState.FAILED       -> "❌ Classic: Failed"
+            ClassicState.RECONNECTING ->
+                "🔄 Classic: Reconnecting… (${classicService?.connectionManager?.reconnectAttempts}/5)"
+            ClassicState.TIMEOUT ->
+                "⏱ Classic: Timed out"
         }
         if (state == ClassicState.DISCONNECTED || state == ClassicState.FAILED) {
             bottomSheetDialog?.dismiss()
@@ -725,7 +737,7 @@ class MainActivity : AppCompatActivity() {
         }
         unregisterReceiver(classicScanReceiver)
         classicService?.connectionManager?.onStateChanged = null
-        classicService?.connectionManager?.onDataReceived = null
+        classicService?.connectionManager?.onMessageReceived= null
         stopBleScan()
         if (isBound) {
             unbindService(serviceConnection)
