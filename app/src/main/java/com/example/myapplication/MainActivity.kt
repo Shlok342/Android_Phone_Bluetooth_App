@@ -89,6 +89,11 @@ class MainActivity : AppCompatActivity() {
                             showDataBottomSheet(display)
                         }
                     }
+                    launch {
+                        manager.events.collect { event ->
+                            showDataBottomSheet("[Log] $event")
+                        }
+                    }
                 }
             }
 
@@ -121,7 +126,9 @@ class MainActivity : AppCompatActivity() {
 
                     // ✅ Filter: only Classic or Dual, never BLE-only
                     val type = device.type
-                    if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC && type != BluetoothDevice.DEVICE_TYPE_DUAL) return
+                    // Only exclude confirmed BLE-only devices.
+                    // UNKNOWN (0) is returned during live discovery before Android resolves the type.
+                    if (type == BluetoothDevice.DEVICE_TYPE_LE) return
 
                     val address = device.address
                     if (classicDeviceMap.containsKey(address)) return
@@ -138,6 +145,57 @@ class MainActivity : AppCompatActivity() {
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     runOnUiThread { Toast.makeText(this@MainActivity, "Classic scan done", Toast.LENGTH_SHORT).show() }
+
+                }
+                BluetoothDevice.ACTION_PAIRING_REQUEST -> {
+                    val device: BluetoothDevice? =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+                    val variant = intent.getIntExtra(
+                        BluetoothDevice.EXTRA_PAIRING_VARIANT,
+                        BluetoothDevice.ERROR
+                    )
+                    val pairingType = when (variant) {
+                        BluetoothDevice.PAIRING_VARIANT_PIN          -> "Enter PIN"
+                        BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION -> "Confirm passkey"
+                        6 /* PAIRING_VARIANT_CONSENT */              -> "Confirm pairing"
+                        else                                         -> "Pairing"
+                    }
+                    runOnUiThread {
+                        classicStatusText.text =
+                            getString(R.string.with, pairingType, device?.address ?: "device")
+                    }
+                }
+
+                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                    val bondState = intent.getIntExtra(
+                        BluetoothDevice.EXTRA_BOND_STATE,
+                        BluetoothDevice.BOND_NONE
+                    )
+                    val device: BluetoothDevice? =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+                    val address = device?.address ?: return
+                    runOnUiThread {
+                        when (bondState) {
+                            BluetoothDevice.BOND_BONDED -> {
+                                // Refresh list entry — it might now show a real name
+                                val idx = classicDeviceList.indexOfFirst { it.address == address }
+                                if (idx != -1) {
+                                    val name = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }
+                                    classicDeviceList[idx] = classicDeviceList[idx].copy(name = name)
+                                    classicAdapter.notifyDataSetChanged()
+                                }
+                                classicStatusText.text = getString(R.string.paired_connecting)
+                            }
+                            BluetoothDevice.BOND_NONE ->
+                                classicStatusText.text = getString(R.string.pairing_failed)
+                        }
+                    }
                 }
             }
         }
@@ -237,6 +295,8 @@ class MainActivity : AppCompatActivity() {
 
                     data.startsWith("[Subscribed]") ->
                         "#F6C97B".toColorInt()
+
+                    data.startsWith("[Log]") -> "#AAAAAA".toColorInt()
 
                     else ->
                         Color.WHITE
@@ -342,9 +402,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (state == BleState.DISCONNECTED || state == BleState.FAILED) {
-            bottomSheetDialog?.dismiss()
-            bottomSheetDialog = null
-            bottomSheetList = null
+            if (activeTab == "BLE") {          // ← ADD guard
+                bottomSheetDialog?.dismiss()
+                bottomSheetDialog = null
+                bottomSheetList = null
+            }
         }
     }
 
@@ -357,8 +419,9 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter().apply {
 
             addAction(BluetoothDevice.ACTION_FOUND)
-
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+            addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)   // ← add this
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }
 
         registerReceiver(classicScanReceiver, filter)
@@ -517,28 +580,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startClassicScan() {
-
         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (!adapter.isEnabled) { Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show(); return }
+        if (!adapter.isEnabled) {
+            Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         classicDeviceList.clear()
         classicDeviceMap.clear()
         classicAdapter.notifyDataSetChanged()
-        if (
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_SCAN
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
 
-            if (adapter.isDiscovering) {
-                adapter.cancelDiscovery()
+        // ── Pre-load already-paired Classic/Dual devices ──────────────────
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                == PackageManager.PERMISSION_GRANTED
+            ) {
+                adapter.bondedDevices?.forEach { device ->
+                    val type = device.type
+                    if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC &&
+                        type != BluetoothDevice.DEVICE_TYPE_DUAL) return@forEach
+                    val address = device.address
+                    val name = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }
+                    classicDeviceMap[address] = device
+                    classicDeviceList.add(ClassicDeviceItem(name, address, type))
+                }
+                classicAdapter.notifyDataSetChanged()
             }
+        } catch (_: SecurityException) {}
 
+        // ── Cancel any active discovery before starting fresh ─────────────
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            if (adapter.isDiscovering) adapter.cancelDiscovery()
         }
+
         try {
             val started = adapter.startDiscovery()
-            Toast.makeText(this, if (started) "Classic scan started ✅" else "Classic scan failed to start ❌", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                if (started) "Classic scan started ✅" else "Classic scan failed to start ❌",
+                Toast.LENGTH_SHORT
+            ).show()
         } catch (_: SecurityException) {
             Toast.makeText(this, "Permission missing for Classic scan", Toast.LENGTH_SHORT).show()
         }
@@ -605,7 +690,7 @@ class MainActivity : AppCompatActivity() {
         if (
             state == ClassicState.DISCONNECTED ||
             state is ClassicState.FAILED
-        ) {
+        )   if (activeTab == "CLASSIC"){
 
             bottomSheetDialog?.dismiss()
 
@@ -621,6 +706,7 @@ class MainActivity : AppCompatActivity() {
 
         if (allGranted) {
             startBluetoothService()
+            startClassicBluetoothService()
             startBleScan()
         } else {
             Toast.makeText(this, "Permissions denied. Cannot scan.", Toast.LENGTH_SHORT).show()
@@ -809,6 +895,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (!isBound) startBluetoothService()
+        if (!isClassicBound) startClassicBluetoothService()  // ← ADD
     }
 }
 

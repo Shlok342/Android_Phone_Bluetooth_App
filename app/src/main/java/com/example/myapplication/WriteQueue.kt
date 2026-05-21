@@ -43,11 +43,12 @@ class WriteQueue(
 
     var onWriteError: ((String) -> Unit)? = null
 
+    @Volatile private var stopped = false
+
     fun start(outputStreamProvider: () -> OutputStream?) {
+        stopped = false   // ← ADD
         if (processorJob?.isActive == true) {
-
             log("start() ignored: processor already active")
-
             return
         }
         processorJob = scope.launch {
@@ -59,18 +60,20 @@ class WriteQueue(
     }
 
     fun stop() {
-
+        stopped = true    // ← ADD
         processorJob?.cancel()
         processorJob = null
-
         channel.close()
-
         channel = Channel(capacity = maxQueueSize)
     }
 
-    fun enqueue(data: ByteArray, onResult: ((WriteResult) -> Unit)? = null): Boolean =
-
-        channel.trySend(QueueEntry(data, onResult)).isSuccess
+    fun enqueue(data: ByteArray, onResult: ((WriteResult) -> Unit)? = null): Boolean {
+        if (stopped) {                                          // ← ADD
+            onResult?.invoke(WriteResult.Failure("Queue stopped"))
+            return false
+        }
+        return channel.trySend(QueueEntry(data, onResult)).isSuccess
+    }
 
     fun drain() {
         while (channel.tryReceive().isSuccess) { /* discard */ }

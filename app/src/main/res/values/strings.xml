@@ -19,6 +19,7 @@
     <string name="connected">🟢 Connected: %1$s </string>
     <string name="connecting">⏳ Connecting to %1$s</string>
     <string name="paired_connecting">🔐 Paired! Connecting...</string>
+    <string name="pairing_for_CLASSIC_BLE">🔐 Pairing with %1$s device</string>
     <string name="pairing_new">🔄 Pairing...</string>
     <string name="pairing_failed">❌ Pairing failed</string>
     <string name="connectedd">🟢 Connected: %1$s</string>
@@ -32,4 +33,5 @@
     <string name="BLETABBUTTON">BLE</string>
     <string name="CLASSICTABBUTTON">Classic</string>
     <string name="state_of_classic_devices">Classic: Idle</string>
+    <string name="with">🔐 %1$s with %2$s…</string>
 </resources>

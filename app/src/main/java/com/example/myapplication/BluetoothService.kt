@@ -34,69 +34,45 @@ class BluetoothService : Service() {
         fun getService(): BluetoothService = this@BluetoothService
     }
     fun disconnect() {
-
+        isDisconnecting = true
         cancelTimeout()
-
-        gattQueue.clear()
-
+        synchronized(gattQueue) { gattQueue.clear() }
         isGattBusy = false
-
         updateNotification("Disconnecting...")
-
         val gatt = bluetoothGatt
-
-        try {
-
-            gatt?.disconnect()
-
-        } catch (_: SecurityException) {}
-
+        try { gatt?.disconnect() } catch (_: SecurityException) {}
         Handler(Looper.getMainLooper()).postDelayed({
-
-            try {
-
-                gatt?.close()
-
-            } catch (_: SecurityException) {}
-
+            try { gatt?.close() } catch (_: SecurityException) {}
             bluetoothGatt = null
-
             connectedDeviceName = null
-
             connectedDeviceAddress = null
-
             currentState = BleState.DISCONNECTED
-
             updateNotification("Disconnected")
-
+            isDisconnecting = false
         }, 500)
     }
+    // REPLACE disconnectInternal() with this:
     private fun disconnectInternal() {
-
         cancelTimeout()
-
         gattQueue.clear()
-
         isGattBusy = false
-
+        val gatt = bluetoothGatt ?: return
         try {
-
-            bluetoothGatt?.disconnect()
-
+            gatt.disconnect()
         } catch (_: SecurityException) {}
-
-        try {
-
-            bluetoothGatt?.close()
-
-        } catch (_: SecurityException) {}
-
+        // close() is intentionally deferred to onConnectionStateChange(STATE_DISCONNECTED)
+        // If already disconnected, close() immediately to avoid leak
+        Handler(Looper.getMainLooper()).postDelayed({
+            try { gatt.close() } catch (_: SecurityException) {}
+        }, 300)
         bluetoothGatt = null
     }
     private val binder = LocalBinder()
     override fun onBind(intent: Intent): IBinder = binder
 
     // ─── State ────────────────────────────────────────────────────────────────
+
+    @Volatile private var isDisconnecting = false
     private var bluetoothGatt: BluetoothGatt? = null
     var currentState = BleState.IDLE
         private set(value) {
@@ -108,9 +84,7 @@ class BluetoothService : Service() {
     var connectedDeviceName: String? = null
     
     var onStateChanged: ((BleState, String) -> Unit)? = null
-    @Deprecated("Use onStateChanged instead", ReplaceWith("onStateChanged"))
-    var onConnectionStateChanged: ((Boolean, String) -> Unit)? = null
-    
+
 
     var onDataReceived: ((String) -> Unit)? = null
 
@@ -170,24 +144,29 @@ class BluetoothService : Service() {
     }
 
     // ─── GATT Operation Queue ─────────────────────────────────────────────────
-    private val gattQueue: LinkedList<() -> Unit> = LinkedList()
-    private var isGattBusy = false
+    private val gattQueue = ArrayDeque<() -> Unit>()
+    @Volatile private var isGattBusy = false
 
     private fun enqueue(operation: () -> Unit) {
-        gattQueue.add(operation)
-        if (!isGattBusy) processNextGattOperation()
+        val shouldProcess = synchronized(gattQueue) {
+            gattQueue.addLast(operation)
+            !isGattBusy
+        }
+        if (shouldProcess) processNextGattOperation()
     }
 
     private fun processNextGattOperation() {
-        if (gattQueue.isEmpty()) {
-            isGattBusy = false
-            return
+        val next = synchronized(gattQueue) {
+            if (isGattBusy) return   // another path already picked it up
+            if (gattQueue.isEmpty()) return
+            isGattBusy = true
+            gattQueue.removeFirst()
         }
-        isGattBusy = true
-        gattQueue.poll()?.invoke()
+        next.invoke()
     }
 
     private fun gattOperationComplete() {
+        synchronized(gattQueue) { isGattBusy = false }
         processNextGattOperation()
     }
 
@@ -249,6 +228,7 @@ class BluetoothService : Service() {
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    if (isDisconnecting) return
                     cancelTimeout()
                     currentState = BleState.DISCONNECTED
 
@@ -834,12 +814,12 @@ class BluetoothService : Service() {
 
 
     private fun cleanUp() {
-        connectedDeviceName = null
-        connectedDeviceAddress = null
-        cancelTimeout()
-        gattQueue.clear()
+        synchronized(gattQueue) { gattQueue.clear() }
         isGattBusy = false
         subscribedCharacteristics.clear()
+        cancelTimeout()
+        connectedDeviceName = null
+        connectedDeviceAddress = null
     }
 
     // ─── Notification Management ─────────────────────────────────────────────
