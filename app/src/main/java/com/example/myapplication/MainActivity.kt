@@ -19,6 +19,11 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import no.nordicsemi.android.support.v18.scanner.*
 import androidx.core.graphics.toColorInt
 import android.content.Context
+import kotlinx.coroutines.Job
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 data class BleDeviceItem(
     val name: String,
     val address: String,
@@ -51,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bleTabBtn: Button
     private lateinit var classicTabBtn: Button
     private lateinit var classicListView: ListView
+    private var classicCollectorJob: Job? = null
 
     // ─── Classic Service Binding ──────────────────────────────────────────────
     private var classicService: ClassicBluetoothService? = null
@@ -58,33 +64,44 @@ class MainActivity : AppCompatActivity() {
 
     private val classicConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            classicService = (binder as ClassicBluetoothService.LocalBinder).getService()
+            val service = (binder as ClassicBluetoothService.LocalBinder).getService()
+            classicService = service
             isClassicBound = true
-            classicService?.connectionManager?.onStateChanged = { state, address ->
-                runOnUiThread { updateClassicStatusUi(state, address) }
-            }
 
-            classicService?.connectionManager?.onMessageReceived = { message ->
-                val display = when (message) {
-                    is ClassicMessage.Text ->
-                        "[Classic] ${message.raw}  |  ${message.hex}"
-                    is ClassicMessage.Binary ->
-                        "[Classic Binary] ${message.bytes.size} bytes"
-                    is ClassicMessage.ParseError ->
-                        "[Parse Error] ${message.reason}"
+            val manager = service.connectionManager
+            classicCollectorJob = lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        manager.connectionInfo.collect { info ->
+                            updateClassicStatusUi(info.state, info.address)
+                        }
+                    }
+                    launch {
+                        manager.messages.collect { message ->
+                            val display = when (message) {
+                                is ClassicMessage.Text ->
+                                    "[Classic] ${message.raw}  |  ${message.hex}"
+                                is ClassicMessage.Binary ->
+                                    "[Classic Binary] ${message.bytes.size} bytes"
+                                is ClassicMessage.ParseError ->
+                                    "[Parse Error] ${message.reason}"
+                            }
+                            showDataBottomSheet(display)
+                        }
+                    }
                 }
-                runOnUiThread { showDataBottomSheet(display) }
             }
 
-            classicService?.connectionManager?.let {
-                updateClassicStatusUi(
-                    it.currentState,
-                    it.connectedDeviceAddress ?: ""
-                )
-            }
+            updateClassicStatusUi(
+                manager.state.value,
+                manager.connectedDeviceAddress ?: ""
+            )
             if (activeTab == "CLASSIC") startClassicScan()
         }
+
         override fun onServiceDisconnected(name: ComponentName) {
+            classicCollectorJob?.cancel()
+            classicCollectorJob = null
             classicService = null
             isClassicBound = false
         }
@@ -531,25 +548,67 @@ class MainActivity : AppCompatActivity() {
         try { (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter.cancelDiscovery() } catch (_: SecurityException) {}
     }
 
-    private fun updateClassicStatusUi(state: ClassicState, address: String) {
+    private fun updateClassicStatusUi(
+        state: ClassicState,
+        address: String
+    ) {
+
         val name =
             classicService
                 ?.connectionManager
                 ?.connectedDeviceName
                 ?: "Device"
-        classicStatusText.text = when (state) {
-            ClassicState.IDLE         -> "Classic: Idle"
-            ClassicState.CONNECTING   -> "Classic: Connecting to $name..."
-            ClassicState.CONNECTED    -> "🟢 Classic: Connected $name ($address)"
-            ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
-            ClassicState.FAILED       -> "❌ Classic: Failed"
-            ClassicState.RECONNECTING ->
-                "🔄 Classic: Reconnecting… (${classicService?.connectionManager?.reconnectAttempts}/5)"
-            ClassicState.TIMEOUT ->
-                "⏱ Classic: Timed out"
-        }
-        if (state == ClassicState.DISCONNECTED || state == ClassicState.FAILED) {
+
+        classicStatusText.text =
+            when (state) {
+
+                ClassicState.IDLE ->
+                    "Classic: Idle"
+
+                ClassicState.CONNECTING ->
+                    "Classic: Connecting to $name..."
+
+                ClassicState.CONNECTED ->
+                    "🟢 Classic: Connected $name ($address)"
+
+                ClassicState.DISCONNECTED ->
+                    "🔴 Classic: Disconnected"
+
+                is ClassicState.RECONNECTING ->
+                    "🔄 Classic: Reconnecting… (${state.attempt}/5)"
+
+                is ClassicState.FAILED -> {
+
+                    when (state.reason) {
+
+                        FailureReason.Timeout ->
+                            "⏱ Classic: Timed out"
+
+                        FailureReason.MaxReconnectAttempts ->
+                            "❌ Classic: Reconnect limit reached"
+
+                        FailureReason.ConnectionLost ->
+                            "❌ Classic: Connection lost"
+
+                        FailureReason.PermissionDenied ->
+                            "❌ Classic: Permission denied"
+
+                        FailureReason.SocketClosed ->
+                            "❌ Classic: Socket closed"
+
+                        is FailureReason.Unknown ->
+                            "❌ Classic: ${state.reason.message}"
+                    }
+                }
+            }
+
+        if (
+            state == ClassicState.DISCONNECTED ||
+            state is ClassicState.FAILED
+        ) {
+
             bottomSheetDialog?.dismiss()
+
             bottomSheetDialog = null
             bottomSheetList = null
         }
@@ -736,8 +795,7 @@ class MainActivity : AppCompatActivity() {
             uiHandler.removeCallbacks(it)
         }
         unregisterReceiver(classicScanReceiver)
-        classicService?.connectionManager?.onStateChanged = null
-        classicService?.connectionManager?.onMessageReceived= null
+        classicCollectorJob?.cancel()
         stopBleScan()
         if (isBound) {
             unbindService(serviceConnection)

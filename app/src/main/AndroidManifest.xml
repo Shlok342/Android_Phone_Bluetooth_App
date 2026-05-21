@@ -41,7 +41,11 @@
         </service>
         <service android:name=".ClassicBluetoothService"
             android:foregroundServiceType="connectedDevice"
-            android:exported="false" />
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintaining active Bluetooth connection to paired Classic Bluetooth Devices" />
+        </service>
 
 
     </application>

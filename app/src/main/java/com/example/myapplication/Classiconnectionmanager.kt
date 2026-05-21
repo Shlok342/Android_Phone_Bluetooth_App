@@ -1,5 +1,4 @@
 package com.example.myapplication
-
 import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -13,6 +12,15 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+
+import kotlinx.coroutines.channels.BufferOverflow
+
+data class ConnectionInfo(
+    val state: ClassicState,
+    val address: String = "",
+    val deviceName: String = ""
+)
 
 class ClassicConnectionManager(private val appContext: Context) {
 
@@ -29,16 +37,30 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── State ─────────────────────────────────────────────
-    @Volatile var currentState = ClassicState.IDLE
-        private set
+
+
+    private val _state =
+        MutableStateFlow<ClassicState>(
+            ClassicState.IDLE
+        )
+
+    val state: StateFlow<ClassicState> =
+        _state.asStateFlow()
 
     var connectedDeviceAddress: String? = null
         private set
     var connectedDeviceName: String? = null
         private set
 
-    var onStateChanged: ((ClassicState, String) -> Unit)? = null
-    var onMessageReceived: ((ClassicMessage) -> Unit)? = null
+    private val _connectionInfo = MutableStateFlow(ConnectionInfo(ClassicState.IDLE))
+    val connectionInfo: StateFlow<ConnectionInfo> = _connectionInfo.asStateFlow()
+
+    private val _messages = MutableSharedFlow<ClassicMessage>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val messages: SharedFlow<ClassicMessage> = _messages.asSharedFlow()
 
     // ─── Sockets / Streams ─────────────────────────────────
     private var bluetoothSocket: BluetoothSocket? = null
@@ -66,18 +88,34 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Read State ────────────────────────────────────────
     @Volatile private var lastReadTime = 0L
-    private val messageBuffer = StringBuilder()
+
     private val sppUUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
 
     // ─── State Helper ──────────────────────────────────────
     private fun updateState(state: ClassicState) {
-        currentState = state
-        onStateChanged?.invoke(state, connectedDeviceAddress ?: "")
+
+        _state.value = state
+
+        _connectionInfo.value = ConnectionInfo(
+            state      = state,
+            address    = connectedDeviceAddress ?: "",
+            deviceName = connectedDeviceName ?: ""
+        )
     }
 
-    private fun forceDisconnect(state: ClassicState) {
+    private fun forceDisconnect(
+        reason: FailureReason? = null
+    ) {
+
         disconnectInternal()
-        updateState(state)
+
+        updateState(
+            if (reason == null) {
+                ClassicState.DISCONNECTED
+            } else {
+                ClassicState.FAILED(reason)
+            }
+        )
     }
 
     // ─── Public: Manual Connect ────────────────────────────
@@ -92,8 +130,8 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Internal Connect (also used by reconnect) ─────────
     private fun doConnect(device: BluetoothDevice) {
-        if (currentState == ClassicState.CONNECTING ||
-            currentState == ClassicState.CONNECTED) return
+        if (_state.value== ClassicState.CONNECTING ||
+            _state.value == ClassicState.CONNECTED) return
 
         disconnectInternal()
         lastDevice = device
@@ -106,7 +144,7 @@ class ClassicConnectionManager(private val appContext: Context) {
             try {
                 if (!hasConnectPermission()) {
                     cancelConnectionTimeout()
-                    updateState(ClassicState.FAILED)
+                    updateState(ClassicState.FAILED(FailureReason.PermissionDenied))
                     return@launch
                 }
                 cancelDiscoveryIfActive()
@@ -121,20 +159,48 @@ class ClassicConnectionManager(private val appContext: Context) {
             }
         }
     }
+    private fun log(message: String) {
+        android.util.Log.d(
+            "ClassicConnectionManager",
+            message
+        )
+    }
+    private fun createSocket(
+        device: BluetoothDevice
+    ): BluetoothSocket {
 
-    private fun createSocket(device: BluetoothDevice): BluetoothSocket {
         return try {
-            val s = device.createRfcommSocketToServiceRecord(sppUUID)
-            s.connect()
-            s
-        } catch (_: IOException) {
-            @Suppress("UNCHECKED_CAST")
-            val fallback = device.javaClass
-                .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                .invoke(device, 1) as BluetoothSocket
-            fallback.connect()
-            fallback
+
+            val socket =
+                device.createRfcommSocketToServiceRecord(sppUUID)
+
+            socket.connect()
+
+            socket
+
+        } catch (primaryError: IOException) {
+
+            log("Primary socket failed: ${primaryError.message}")
+
+            val fallbackSocket =
+                createFallbackSocket(device)
+
+            fallbackSocket.connect()
+
+            fallbackSocket
         }
+    }
+
+    private fun createFallbackSocket(
+        device: BluetoothDevice
+    ): BluetoothSocket {
+
+        return device.javaClass
+            .getMethod(
+                "createRfcommSocket",
+                Int::class.javaPrimitiveType
+            )
+            .invoke(device, 1) as BluetoothSocket
     }
 
     private fun onConnected() {
@@ -144,12 +210,14 @@ class ClassicConnectionManager(private val appContext: Context) {
         lastReadTime        = System.currentTimeMillis()
 
         parser.reset()
-        parser.onMessageParsed = { onMessageReceived?.invoke(it) }
+        parser.onMessageParsed = { msg ->
+            _messages.tryEmit(msg)
+        }
 
         writeQueue = WriteQueue(managerScope, WRITE_TIMEOUT_MS).also { q ->
             q.onWriteError = {
-                if (currentState == ClassicState.CONNECTED) {
-                    forceDisconnect(ClassicState.TIMEOUT)
+                if (_state.value == ClassicState.CONNECTED) {
+                    forceDisconnect(FailureReason.Timeout)
                     scheduleReconnect()
                 }
             }
@@ -166,8 +234,8 @@ class ClassicConnectionManager(private val appContext: Context) {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = managerScope.launch {
             delay(CONNECTION_TIMEOUT_MS)
-            if (currentState == ClassicState.CONNECTING) {
-                forceDisconnect(ClassicState.TIMEOUT)
+            if (_state.value == ClassicState.CONNECTING) {
+                forceDisconnect(FailureReason.Timeout)
                 handleConnectionFailure()
             }
         }
@@ -182,10 +250,10 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun startInactivityTimeout() {
         inactivityTimeoutJob?.cancel()
         inactivityTimeoutJob = managerScope.launch {
-            while (isActive && currentState == ClassicState.CONNECTED) {
+            while (isActive && _state.value == ClassicState.CONNECTED) {
                 delay(READ_INACTIVITY_CHECK_MS)
                 if (System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
-                    forceDisconnect(ClassicState.TIMEOUT)
+                    forceDisconnect(FailureReason.Timeout)
                     scheduleReconnect()
                     break
                 }
@@ -197,7 +265,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun startReading() {
         readJob = managerScope.launch {
             val buffer = ByteArray(1024)
-            while (isActive && currentState == ClassicState.CONNECTED) {
+            while (isActive && _state.value == ClassicState.CONNECTED) {
                 try {
                     val bytes = inputStream?.read(buffer) ?: break
                     if (bytes > 0) {
@@ -206,8 +274,8 @@ class ClassicConnectionManager(private val appContext: Context) {
                     }
                 } catch (_: IOException) {
                     if (!isIntentionalDisconnect &&
-                        currentState == ClassicState.CONNECTED) {
-                        forceDisconnect(ClassicState.DISCONNECTED)
+                        _state.value == ClassicState.CONNECTED) {
+                        forceDisconnect()
                         scheduleReconnect()
                     }
                     break
@@ -235,11 +303,31 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun scheduleReconnect() {
         if (isIntentionalDisconnect)         return
         if (reconnectJob?.isActive == true)  return
-        if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) return
+        if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
+
+            updateState(
+                ClassicState.FAILED(
+                    FailureReason.MaxReconnectAttempts
+                )
+            )
+
+            return
+        }
 
         // Cooldown after repeated failure bursts
-        if (consecutiveFailures >= RECONNECT_MAX_ATTEMPTS &&
-            System.currentTimeMillis() - lastFailureTime < FAILURE_COOLDOWN_MS) return
+        if (
+            consecutiveFailures >= RECONNECT_MAX_ATTEMPTS &&
+            System.currentTimeMillis() - lastFailureTime < FAILURE_COOLDOWN_MS
+        ) {
+
+            updateState(
+                ClassicState.FAILED(
+                    FailureReason.MaxReconnectAttempts
+                )
+            )
+
+            return
+        }
 
         val device = lastDevice ?: return
 
@@ -249,7 +337,7 @@ class ClassicConnectionManager(private val appContext: Context) {
                 RECONNECT_BASE_DELAY_MS * (1L shl (reconnectAttempts - 1)),
                 RECONNECT_MAX_DELAY_MS
             )
-            updateState(ClassicState.RECONNECTING)
+            updateState(ClassicState.RECONNECTING(reconnectAttempts))
             delay(delay)
             if (!isIntentionalDisconnect && isActive) doConnect(device)
         }
@@ -265,11 +353,12 @@ class ClassicConnectionManager(private val appContext: Context) {
     fun disconnect() {
         isIntentionalDisconnect = true
         cancelReconnect()
-        forceDisconnect(ClassicState.DISCONNECTED)
+        forceDisconnect()
     }
 
     fun destroy() {
         isIntentionalDisconnect = true
+        disconnectInternal()
         managerScope.cancel()
     }
 
@@ -277,9 +366,9 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun disconnectInternal() {
         cancelConnectionTimeout()
         inactivityTimeoutJob?.cancel(); inactivityTimeoutJob = null
-        connectJob?.cancel();           connectJob           = null
-        readJob?.cancel();              readJob              = null
-
+        try { bluetoothSocket?.close() } catch (_: IOException) {}
+        connectJob?.cancel()
+        readJob?.cancel()
         try { inputStream?.close()    } catch (_: IOException) {}
         try { outputStream?.close()   } catch (_: IOException) {}
         try { bluetoothSocket?.close()} catch (_: IOException) {}
@@ -289,7 +378,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         outputStream    = null
         connectedDeviceAddress = null
         connectedDeviceName    = null
-        messageBuffer.clear()
+
         writeQueue?.stop()
         writeQueue = null
         parser.reset()
@@ -322,5 +411,6 @@ class ClassicConnectionManager(private val appContext: Context) {
         if (!hasConnectPermission()) "Unknown" else device.name ?: "Unknown"
     } catch (_: SecurityException) { "Unknown" }
 
-    fun isConnected() = currentState == ClassicState.CONNECTED
+    fun isConnected() = _state.value == ClassicState.CONNECTED
+
 }

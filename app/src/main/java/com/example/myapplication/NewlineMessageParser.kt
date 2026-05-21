@@ -3,52 +3,79 @@ package com.example.myapplication
 class NewlineMessageParser(
     private val maxBufferBytes: Int = 64 * 1024
 ) : MessageParser {
-
     override var onMessageParsed: ((ClassicMessage) -> Unit)? = null
-
-    private val buffer = StringBuilder()
+    private val buffer = mutableListOf<Byte>()
 
     override fun feed(bytes: ByteArray, length: Int) {
-        val chunk = try {
-            String(bytes, 0, length, Charsets.UTF_8)
-        } catch (_: Exception) {
+
+        buffer.addAll(bytes.take(length))
+
+        if (buffer.size > maxBufferBytes) {
+
+            val dropped = buffer.toByteArray()
+
+            buffer.clear()
+
             onMessageParsed?.invoke(
                 ClassicMessage.ParseError(
-                    reason = "Invalid UTF-8",
-                    rawBytes = bytes.copyOf(length)
+                    reason = ParseFailure.Unknown(
+                        "Buffer overflow"
+                    ),
+                    rawBytes = dropped
                 )
             )
+
             return
         }
 
-        if (buffer.length + chunk.length > maxBufferBytes) {
-            val dropped = buffer.toString()
-            buffer.clear()
-            onMessageParsed?.invoke(
-                ClassicMessage.ParseError(
-                    reason = "Buffer overflow — dropped ${dropped.length} bytes",
-                    rawBytes = dropped.toByteArray()
+        while (true) {
+
+            val newlineIndex =
+                buffer.indexOf('\n'.code.toByte())
+
+            if (newlineIndex == -1) break
+
+            val lineBytes =
+                buffer.take(newlineIndex).toByteArray()
+
+            buffer.subList(
+                0,
+                newlineIndex + 1
+            ).clear()
+
+            try {
+
+                val line = lineBytes
+                    .toString(Charsets.UTF_8)
+                    .removeSuffix("\r")
+
+                if (line.isNotEmpty()) {
+                    emit(line)
+                }
+
+            } catch (_: java.nio.charset.MalformedInputException) {
+
+                onMessageParsed?.invoke(
+                    ClassicMessage.ParseError(
+                        reason = ParseFailure.Unknown(
+                            "Invalid UTF-8"
+                        ),
+                        rawBytes = lineBytes
+                    )
                 )
-            )
-        }
-
-        buffer.append(chunk)
-
-        while (buffer.contains('\n')) {
-            val end = buffer.indexOf('\n')
-            val line = buffer.substring(0, end).trim()
-            buffer.delete(0, end + 1)
-            if (line.isNotEmpty()) emit(line)
+            }
         }
     }
+
 
     override fun reset() {
         buffer.clear()
     }
 
     private fun emit(line: String) {
-        val hex = line.toByteArray(Charsets.UTF_8)
-            .joinToString(" ") { "%02X".format(it) }
-        onMessageParsed?.invoke(ClassicMessage.Text(raw = line, hex = hex))
+
+        onMessageParsed?.invoke(
+            ClassicMessage.Text(raw = line)
+        )
     }
 }

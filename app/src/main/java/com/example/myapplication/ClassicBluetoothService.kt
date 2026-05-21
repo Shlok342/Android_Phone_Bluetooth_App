@@ -1,4 +1,6 @@
 package com.example.myapplication
+import android.os.Build
+import android.content.pm.ServiceInfo
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,6 +10,12 @@ import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel // Added for onDestroy
+
+import kotlinx.coroutines.launch // Added for observeFlows
 
 class ClassicBluetoothService : Service() {
 
@@ -16,154 +24,190 @@ class ClassicBluetoothService : Service() {
     }
 
     private val binder = LocalBinder()
+
+    // Using a SupervisorJob allows child coroutines to fail independently
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastNotifTime = 0L
-    private val mainHandler =
-        android.os.Handler(android.os.Looper.getMainLooper())
 
-    private fun updateNotification(text: String) {
-
-        mainHandler.post {
-
-            getSystemService(NotificationManager::class.java)
-                .notify(notifId, buildNotification(text))
-        }
-    }
-    private fun updateNotificationThrottled(text: String) {
-
-        val now = System.currentTimeMillis()
-
-        if (now - lastNotifTime > 1500) {
-
-            lastNotifTime = now
-
-            updateNotification(text)
-        }
-    }
-
-    override fun onBind(intent: Intent): IBinder = binder
-
-    // ─── Connection Manager ────────────────────────────────
-
-    lateinit var connectionManager: ClassicConnectionManager
-        private set
-
-    // ─── Notification ──────────────────────────────────────
 
     private val channelId = "classic_bt_channel"
     private val notifId = 2
 
-    override fun onCreate() {
-        connectionManager = ClassicConnectionManager(this)
-        super.onCreate()
 
-        createNotificationChannel()
+    private var _connectionManager:
+            ClassicConnectionManager? = null
 
-        startForeground(
-            notifId,
-            buildNotification("Classic BT Ready")
-        )
+    @Suppress("SameParameterValue")
+    private fun updateBluetoothForeground(statusText: String) {
+        // 1. Build the custom notification using your existing function
+        val notification = buildNotification(statusText)
 
-        observeConnection()
+        // 2. Safely apply the correct startForeground format based on the OS version
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { // API 29+
+            startForeground(
+                notifId,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else { // API 28 and below
+            startForeground(
+                notifId,
+                notification
+            )
+        }
     }
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int
-    ): Int {
 
+    val connectionManager: ClassicConnectionManager
+        get() = requireNotNull(_connectionManager) {
+            "ConnectionManager not initialized"
+        }
+
+    override fun onBind(intent: Intent): IBinder = binder
+
+    override fun onCreate() {
+        super.onCreate() // Best practice: call super first
+        _connectionManager = ClassicConnectionManager(this)
+        createNotificationChannel()
+        // Clean, safe, and handles Android 14+ automatically
+        updateBluetoothForeground("Classic BT Ready")
+
+
+    observeFlows()
+}
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY
     }
 
     override fun onDestroy() {
+        // FIX: Cancel the scope to stop collecting flows and prevent memory leaks
+        serviceScope.cancel()
 
-        connectionManager.onStateChanged = null
-        connectionManager.onMessageReceived = null
+        // Safeguard against uninitialized connectionManager if onCreate failed early
+        _connectionManager?.let {
 
-        connectionManager.disconnect()
-        connectionManager.destroy()
+            it.disconnect()
+            it.destroy()
+        }
 
         super.onDestroy()
     }
 
     // ─── Observe Manager ───────────────────────────────────
 
-    private fun observeConnection() {
+    private fun observeFlows() {
+        // FIX: Requires 'import kotlinx.coroutines.launch'
+        serviceScope.launch {
+            connectionManager.connectionInfo.collect { info ->
+                updateNotification(
+                    when (val state = info.state) {
 
-        connectionManager.onStateChanged =
-            { state, _ ->
+                        ClassicState.IDLE ->
+                            "Classic BT Ready"
 
-                when (state) {
+                        ClassicState.CONNECTING ->
+                            "Connecting..."
 
-                    ClassicState.IDLE ->
-                        updateNotification("Classic BT Ready")
+                        ClassicState.CONNECTED ->
+                            "Connected: ${info.deviceName}"
 
-                    ClassicState.CONNECTING ->
-                        updateNotification("Connecting...")
+                        ClassicState.DISCONNECTED ->
+                            "Disconnected"
 
-                    ClassicState.CONNECTED ->
-                        updateNotification(
-                            "Connected: ${
-                                connectionManager.connectedDeviceName
-                            }"
-                        )
+                        is ClassicState.RECONNECTING ->
+                            "Reconnecting… (${state.attempt}/5)"
 
-                    ClassicState.DISCONNECTED ->
-                        updateNotification("Disconnected")
+                        is ClassicState.FAILED -> {
 
-                    ClassicState.FAILED ->
-                        updateNotification("Connection failed")
-                    ClassicState.RECONNECTING ->
-                        updateNotification(
-                            "Reconnecting… (${connectionManager.reconnectAttempts}/${5})"
-                        )
+                            when (state.reason) {
 
-                    ClassicState.TIMEOUT ->
-                        updateNotification("Connection timed out")
+                                FailureReason.Timeout ->
+                                    "Connection timed out"
+
+                                FailureReason.MaxReconnectAttempts ->
+                                    "Reconnect limit reached"
+
+                                else ->
+                                    "Connection failed"
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        serviceScope.launch {
+            connectionManager.messages
+
+                .collect { message ->
+                    val preview = when (message) {
+                        is ClassicMessage.Text       -> message.raw
+                        is ClassicMessage.Binary     -> "[Binary: ${message.bytes.size}B]"
+                        is ClassicMessage.ParseError -> "[Error: ${message.reason}]"
+                    }
+                    if (message is ClassicMessage.ParseError) {
+
+                        updateNotification(preview.take(40))
+
+                    } else {
+
+                        val now = System.currentTimeMillis()
+
+                        if (now - lastNotifTime >= 1500L) {
+
+                            lastNotifTime = now
+
+                            updateNotification(preview.take(40))
+                        }
+                    }
                 }
-            }
-
-        connectionManager.onMessageReceived = { message ->
-            val preview = when (message) {
-                is ClassicMessage.Text       -> message.raw
-                is ClassicMessage.Binary     -> "[Binary: ${message.bytes.size}B]"
-                is ClassicMessage.ParseError -> "[Parse error: ${message.reason}]"
-            }
-            updateNotificationThrottled(preview.take(40))
         }
     }
 
     // ─── Notification Helpers ──────────────────────────────
 
-    private fun createNotificationChannel() {
+    private fun updateNotification(text: String) {
+        val manager =
+            getSystemService(NotificationManager::class.java)
 
-        val channel = NotificationChannel(
-            channelId,
-            "Classic Bluetooth",
-            NotificationManager.IMPORTANCE_LOW
+        manager?.notify(
+            notifId,
+            buildNotification(text)
         )
-
-        getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String): Notification {
+    // Added missing implementation
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            channelId,
+            "Bluetooth Service Channel",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Shows Bluetooth connection status and messages"
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.createNotificationChannel(channel)
+    }
 
-        val intent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+    // Added missing implementation
+    private fun buildNotification(text: String): Notification {
+        val pendingIntent = Intent(this, MainActivity::class.java).let { notificationIntent ->
+            PendingIntent.getActivity(
+                this,
+                0,
+                notificationIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+        }
 
         return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Classic BT")
+            .setContentTitle("Classic Bluetooth")
             .setContentText(text)
+            // Replace with your app's actual drawable resource ID
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentIntent(intent)
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
             .build()
     }
-
-
 }
