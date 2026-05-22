@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var classicListView: ListView
     private var classicCollectorJob: Job? = null
 
+    private lateinit var backgroundView: GlassmorphicBackgroundView
     // ─── Classic Service Binding ──────────────────────────────────────────────
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
@@ -343,13 +344,19 @@ class MainActivity : AppCompatActivity() {
             isBound = false
         }
     }
-
+    private fun animateStatusText(tv: TextView, newText: String) {
+        if (tv.text == newText) return
+        tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
+            tv.text = newText
+            tv.translationY = 8f
+            tv.animate().alpha(1f).translationY(0f).setDuration(240).start()
+        }.start()
+    }
     private fun updateStatusUi(state: BleState, address: String) {
-        delayedStatusRunnable?.let {
-            uiHandler.removeCallbacks(it)
-        }
+        delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
+        backgroundView.transitionToState(state)
         val name = bluetoothService?.connectedDeviceName ?: "Device"
-        statusText.text = when (state) {
+        val statusMsg = when (state) {
             BleState.IDLE                 -> "Status: Idle"
             BleState.CONNECTING -> {
 
@@ -357,8 +364,8 @@ class MainActivity : AppCompatActivity() {
 
                     if (bluetoothService?.currentState == BleState.CONNECTING) {
 
-                        statusText.text =
-                            getString(R.string.connection_taking_longer_than_expected)
+
+                        animateStatusText(statusText,getString(R.string.connection_taking_longer_than_expected))
 
                     }
                 }
@@ -373,8 +380,8 @@ class MainActivity : AppCompatActivity() {
 
                     if (bluetoothService?.currentState == BleState.BONDING) {
 
-                        statusText.text =
-                            getString(R.string.taking_longer_than_expected_may_disconnect)
+
+                        animateStatusText(statusText,getString(R.string.taking_longer_than_expected_may_disconnect))
 
                     }
                 }
@@ -400,6 +407,7 @@ class MainActivity : AppCompatActivity() {
             }
             BleState.FAILED               -> "❌ Connection Failed"
         }
+        animateStatusText(statusText, statusMsg)
 
         if (state == BleState.DISCONNECTED || state == BleState.FAILED) {
             if (activeTab == "BLE") {          // ← ADD guard
@@ -432,23 +440,32 @@ class MainActivity : AppCompatActivity() {
         listView = ListView(this)
         statusText = TextView(this).apply {
             text = getString(R.string.not_connected)
-            textSize = 16f
-            setPadding(20, 10, 20, 10)
+            textSize = 13f
+            setTextColor(getColor(R.color.color_text_secondary))
+            letterSpacing = 0.03f
+            setPadding(24, 10, 24, 10)
         }
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@MainActivity).apply {
                 text = getString(R.string.nearby_ble_devices)
-                textSize = 22f
-                setPadding(20, 120, 20, 20)
+                textSize = 16f
+                setTextColor(getColor(R.color.color_text_primary))
+                setTypeface(null, Typeface.BOLD)
+                letterSpacing = 0.10f
+                setPadding(24, 120, 24, 4)
             })
-            addView(statusText)
-        }
+            addView(statusText)}
 
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val refreshBtn = Button(this).apply {
             text = getString(R.string.refresh)
+            textSize = 11f
+            letterSpacing = 0.04f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            stateListAnimator = null
             setOnClickListener {
                 if (activeTab == "BLE") { pendingRefresh = true; stopBleScan(); bluetoothService?.disconnect() }
                 else { stopClassicScan(); startClassicScan() }
@@ -456,12 +473,22 @@ class MainActivity : AppCompatActivity() {
         }
         val stopBtn = Button(this).apply {
             text = getString(R.string.stop_scan)
+            textSize = 11f
+            letterSpacing = 0.04f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            stateListAnimator = null
             setOnClickListener {
                 if (activeTab == "BLE") stopBleScan() else stopClassicScan()
             }
         }
         val disconnectBtn = Button(this).apply {
             text = getString(R.string.disconnect)
+            textSize = 11f
+            letterSpacing = 0.04f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            stateListAnimator = null
             setOnClickListener {
                 if (activeTab == "BLE") bluetoothService?.disconnect()
                 else classicService?.connectionManager?.disconnect()
@@ -475,8 +502,22 @@ class MainActivity : AppCompatActivity() {
         layout.addView(btnRow)
         layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
         // ─── Tab buttons ──────────────────────────────────────────────────────────
-        bleTabBtn = Button(this).apply { text = context.getString(R.string.BLETABBUTTON) }
-        classicTabBtn = Button(this).apply { text = context.getString(R.string.CLASSICTABBUTTON) }
+        bleTabBtn = Button(this).apply {
+            text = context.getString(R.string.BLETABBUTTON)
+            textSize = 11f
+            letterSpacing = 0.08f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_tab_selected)
+            stateListAnimator = null
+        }
+        classicTabBtn = Button(this).apply {
+            text = context.getString(R.string.CLASSICTABBUTTON)
+            textSize = 11f
+            letterSpacing = 0.08f
+            setTextColor(getColor(R.color.color_text_secondary))
+            setBackgroundResource(R.drawable.bg_tab_unselected)
+            stateListAnimator = null
+        }
 
         val tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         tabRow.addView(bleTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
@@ -485,8 +526,10 @@ class MainActivity : AppCompatActivity() {
 // ─── Classic status + list ────────────────────────────────────────────────
         classicStatusText = TextView(this).apply {
             text = context.getString(R.string.state_of_classic_devices)
-            textSize = 16f
-            setPadding(20, 10, 20, 10)
+            textSize = 13f
+            setTextColor(getColor(R.color.color_text_secondary))
+            letterSpacing = 0.03f
+            setPadding(24, 10, 24, 10)
             visibility = View.GONE
         }
         classicListView = ListView(this).apply { visibility = View.GONE }
@@ -504,6 +547,10 @@ class MainActivity : AppCompatActivity() {
 // ─── Tab switching logic ──────────────────────────────────────────────────
         bleTabBtn.setOnClickListener {
             activeTab = "BLE"
+            bleTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
+            bleTabBtn.setTextColor(getColor(R.color.color_text_primary))
+            classicTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
+            classicTabBtn.setTextColor(getColor(R.color.color_text_secondary))
             statusText.visibility = View.VISIBLE
             listView.visibility = View.VISIBLE
             classicStatusText.visibility = View.GONE
@@ -511,6 +558,10 @@ class MainActivity : AppCompatActivity() {
         }
         classicTabBtn.setOnClickListener {
             activeTab = "CLASSIC"
+            classicTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
+            classicTabBtn.setTextColor(getColor(R.color.color_text_primary))
+            bleTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
+            bleTabBtn.setTextColor(getColor(R.color.color_text_secondary))
             statusText.visibility = View.GONE
             listView.visibility = View.GONE
             classicStatusText.visibility = View.VISIBLE
@@ -518,10 +569,16 @@ class MainActivity : AppCompatActivity() {
             startClassicScan()
         }
 
-        setContentView(layout)
-        ViewCompat.setOnApplyWindowInsetsListener(layout) { v, insets ->
+        val rootFrame = FrameLayout(this)
+        backgroundView = GlassmorphicBackgroundView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+        }
+        rootFrame.addView(backgroundView)
+        rootFrame.addView(layout, FrameLayout.LayoutParams(-1, -1))
+        setContentView(rootFrame)
+        ViewCompat.setOnApplyWindowInsetsListener(rootFrame) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, bars.top, 0, bars.bottom)
+            layout.setPadding(0, bars.top, 0, bars.bottom)
             insets
         }
 
@@ -532,6 +589,10 @@ class MainActivity : AppCompatActivity() {
             connectCallback = { device -> connectToDevice(device) }
         )
         listView.adapter = deviceAdapter
+        listView.layoutAnimation = android.view.animation.AnimationUtils
+            .loadLayoutAnimation(this, R.anim.layout_item_slide_in)
+        classicListView.layoutAnimation = android.view.animation.AnimationUtils
+            .loadLayoutAnimation(this, R.anim.layout_item_slide_in)
     }
 
     private fun checkPermissionsAndStartService() {
@@ -633,19 +694,10 @@ class MainActivity : AppCompatActivity() {
         try { (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter.cancelDiscovery() } catch (_: SecurityException) {}
     }
 
-    private fun updateClassicStatusUi(
-        state: ClassicState,
-        address: String
-    ) {
-
-        val name =
-            classicService
-                ?.connectionManager
-                ?.connectedDeviceName
-                ?: "Device"
-
-        classicStatusText.text =
-            when (state) {
+    private fun updateClassicStatusUi(state: ClassicState, address: String) {
+        backgroundView.transitionToClassicState(state)
+        val name = classicService?.connectionManager?.connectedDeviceName ?: "Device"
+        val statusMsg = when (state) {
 
                 ClassicState.IDLE ->
                     "Classic: Idle"
@@ -686,6 +738,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        animateStatusText(statusText,statusMsg)
 
         if (
             state == ClassicState.DISCONNECTED ||
@@ -869,7 +922,11 @@ class MainActivity : AppCompatActivity() {
 
         // Safely update the status text on the UI thread
         statusText.text = getString(R.string.button_has_been_clicked)
-
+        if (Build.VERSION.SDK_INT >=Build.VERSION_CODES.R) {
+            listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        } else {
+            listView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        }
         // Hand off the device to your background service
         bluetoothService?.connect(device)
     }

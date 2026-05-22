@@ -1,5 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ── Backgrounds ─────────────────────────────────── -->
+    <color name="color_background">#0D0E11</color>
+    <color name="color_surface">#171820</color>
+    <color name="color_surface_elevated">#1E2029</color>
+
+    <!-- ── Glass layers ────────────────────────────────── -->
+    <color name="color_glass_fill">#1AFFFFFF</color>
+    <color name="color_glass_fill_elevated">#28FFFFFF</color>
+    <color name="color_glass_border">#1FFFFFFF</color>
+
+    <!-- ── Typography ──────────────────────────────────── -->
+    <color name="color_text_primary">#E8E9F0</color>
+    <color name="color_text_secondary">#72738A</color>
+    <color name="color_text_tertiary">#454656</color>
+
+    <!-- ── State accents ───────────────────────────────── -->
+    <color name="color_state_idle">#7C3AED</color>
+    <color name="color_state_connecting">#D97706</color>
+    <color name="color_state_connected">#059669</color>
+    <color name="color_state_failed">#DC2626</color>
+
+    <!-- ── Tab states ──────────────────────────────────── -->
+    <color name="color_tab_active_bg">#2AFFFFFF</color>
+    <color name="color_tab_inactive_bg">#0DFFFFFF</color>
+
+    <!-- ── Buttons ─────────────────────────────────────── -->
+    <color name="color_btn_connect">#1A7C3AED</color>
+    <color name="color_btn_connect_pressed">#337C3AED</color>
+
+    <!-- ── Legacy (keep for lib compatibility) ─────────── -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>
