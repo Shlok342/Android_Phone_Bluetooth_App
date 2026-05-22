@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
+import com.google.android.material.button.MaterialButton
 data class BleDeviceItem(
     val name: String,
     val address: String,
@@ -34,6 +35,10 @@ data class ClassicDeviceItem(
     val address: String,
     val type: Int
 )
+enum class ActiveTab {
+    BLE,
+    CLASSIC
+}
 class MainActivity : AppCompatActivity() {
 
     // ─── UI State ─────────────────────────────────────────────────────────────
@@ -47,21 +52,24 @@ class MainActivity : AppCompatActivity() {
     private val deviceList = mutableListOf<BleDeviceItem>()
     private val deviceMap = mutableMapOf<String, BluetoothDevice>()
     // ─── Classic State ────────────────────────────────────────────────────────
-    private var activeTab = "BLE" // "BLE" or "CLASSIC"
+     // "BLE" or "CLASSIC"
     private var classicServiceStarted = false
     private val classicDeviceList = mutableListOf<ClassicDeviceItem>()
     private val classicDeviceMap = mutableMapOf<String, BluetoothDevice>()
     private lateinit var classicAdapter: ClassicDeviceAdapter
     private lateinit var classicStatusText: TextView
-    private lateinit var bleTabBtn: Button
-    private lateinit var classicTabBtn: Button
+    private lateinit var bleTabBtn: MaterialButton
+    private lateinit var classicTabBtn: MaterialButton
     private lateinit var classicListView: ListView
     private var classicCollectorJob: Job? = null
-
+    private var activeTab = ActiveTab.BLE
     private lateinit var backgroundView: GlassmorphicBackgroundView
     // ─── Classic Service Binding ──────────────────────────────────────────────
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
+    fun Int.dp(context: Context): Int {
+        return (this * context.resources.displayMetrics.density).toInt()
+    }
 
     private val classicConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -102,7 +110,7 @@ class MainActivity : AppCompatActivity() {
                 manager.state.value,
                 manager.connectedDeviceAddress ?: ""
             )
-            if (activeTab == "CLASSIC") startClassicScan()
+            if (activeTab == ActiveTab.CLASSIC) startClassicScan()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -231,8 +239,8 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            }
+                )}
+
 
             val title = TextView(this).apply {
                 text = getString(R.string.live_data)
@@ -246,7 +254,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            val clearBtn = Button(this).apply {
+            val clearBtn = MaterialButton(this).apply {
                 text = getString(R.string.clear)
 
                 setOnClickListener {
@@ -410,7 +418,7 @@ class MainActivity : AppCompatActivity() {
         animateStatusText(statusText, statusMsg)
 
         if (state == BleState.DISCONNECTED || state == BleState.FAILED) {
-            if (activeTab == "BLE") {          // ← ADD guard
+            if (activeTab == ActiveTab.BLE) {          // ← ADD guard
                 bottomSheetDialog?.dismiss()
                 bottomSheetDialog = null
                 bottomSheetList = null
@@ -443,7 +451,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 13f
             setTextColor(getColor(R.color.color_text_secondary))
             letterSpacing = 0.03f
-            setPadding(24, 10, 24, 10)
+            setPadding(24.dp(context), 4.dp(context), 24.dp(context), 10.dp(context))
         }
 
         val layout = LinearLayout(this).apply {
@@ -454,43 +462,62 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(getColor(R.color.color_text_primary))
                 setTypeface(null, Typeface.BOLD)
                 letterSpacing = 0.10f
-                setPadding(24, 120, 24, 4)
+                setPadding(24.dp(context), 32.dp(context), 24.dp(context), 6.dp(context))
             })
             addView(statusText)}
 
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val refreshBtn = Button(this).apply {
+        val refreshBtn = MaterialButton(this).apply {
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
             text = getString(R.string.refresh)
-            textSize = 11f
+            textSize = 12f
             letterSpacing = 0.04f
             setTextColor(getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
+            setPadding(18, 0, 18, 0)
             stateListAnimator = null
             setOnClickListener {
-                if (activeTab == "BLE") { pendingRefresh = true; stopBleScan(); bluetoothService?.disconnect() }
+                if (activeTab == ActiveTab.BLE) { pendingRefresh = true; stopBleScan(); bluetoothService?.disconnect() }
                 else { stopClassicScan(); startClassicScan() }
             }
         }
-        val stopBtn = Button(this).apply {
+        val stopBtn = MaterialButton(this).apply {
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+
+
             text = getString(R.string.stop_scan)
-            textSize = 11f
+            textSize = 12f
             letterSpacing = 0.04f
             setTextColor(getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
+            setPadding(18, 0, 18, 0)
             stateListAnimator = null
             setOnClickListener {
-                if (activeTab == "BLE") stopBleScan() else stopClassicScan()
+                if (activeTab == ActiveTab.BLE) stopBleScan() else stopClassicScan()
             }
         }
-        val disconnectBtn = Button(this).apply {
+        val disconnectBtn = MaterialButton(this).apply {
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+
+
             text = getString(R.string.disconnect)
-            textSize = 11f
+            textSize = 12f
             letterSpacing = 0.04f
             setTextColor(getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
+            setPadding(18, 0, 18, 0)
             stateListAnimator = null
             setOnClickListener {
-                if (activeTab == "BLE") bluetoothService?.disconnect()
+                if (activeTab == ActiveTab.BLE) bluetoothService?.disconnect()
                 else classicService?.connectionManager?.disconnect()
             }
         }
@@ -502,20 +529,49 @@ class MainActivity : AppCompatActivity() {
         layout.addView(btnRow)
         layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
         // ─── Tab buttons ──────────────────────────────────────────────────────────
-        bleTabBtn = Button(this).apply {
+        bleTabBtn = MaterialButton(this).apply {
+
             text = context.getString(R.string.BLETABBUTTON)
+
             textSize = 11f
-            letterSpacing = 0.08f
+            letterSpacing = 0.04f
+
             setTextColor(getColor(R.color.color_text_primary))
+
             setBackgroundResource(R.drawable.bg_tab_selected)
+
+            minHeight = 0
+            minimumHeight = 0
+
+            minWidth = 0
+            minimumWidth = 0
+
+            insetTop = 0
+            insetBottom = 0
+
+            setPadding(0, 0, 0, 0)
+
             stateListAnimator = null
         }
-        classicTabBtn = Button(this).apply {
+        classicTabBtn = MaterialButton(this).apply {
+
             text = context.getString(R.string.CLASSICTABBUTTON)
+
             textSize = 11f
-            letterSpacing = 0.08f
+            letterSpacing = 0.03f
+
             setTextColor(getColor(R.color.color_text_secondary))
+
             setBackgroundResource(R.drawable.bg_tab_unselected)
+
+            minHeight = 0
+            minimumHeight = 0
+
+            insetTop = 0
+            insetBottom = 0
+
+            setPadding(0, 0, 0, 0)
+
             stateListAnimator = null
         }
 
@@ -529,7 +585,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 13f
             setTextColor(getColor(R.color.color_text_secondary))
             letterSpacing = 0.03f
-            setPadding(24, 10, 24, 10)
+            setPadding(24.dp(context), 4.dp(context), 24.dp(context), 10.dp(context))
             visibility = View.GONE
         }
         classicListView = ListView(this).apply { visibility = View.GONE }
@@ -546,7 +602,7 @@ class MainActivity : AppCompatActivity() {
 
 // ─── Tab switching logic ──────────────────────────────────────────────────
         bleTabBtn.setOnClickListener {
-            activeTab = "BLE"
+            activeTab= ActiveTab.BLE
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
             bleTabBtn.setTextColor(getColor(R.color.color_text_primary))
             classicTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
@@ -557,7 +613,7 @@ class MainActivity : AppCompatActivity() {
             classicListView.visibility = View.GONE
         }
         classicTabBtn.setOnClickListener {
-            activeTab = "CLASSIC"
+            activeTab = ActiveTab.CLASSIC
             classicTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
             classicTabBtn.setTextColor(getColor(R.color.color_text_primary))
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
@@ -706,7 +762,7 @@ class MainActivity : AppCompatActivity() {
                     "Classic: Connecting to $name..."
 
                 ClassicState.CONNECTED ->
-                    "🟢 Classic: Connected $name ($address)"
+                    "🟢 Classic: Connected to $name ($address)"
 
                 ClassicState.DISCONNECTED ->
                     "🔴 Classic: Disconnected"
@@ -738,12 +794,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        animateStatusText(statusText,statusMsg)
+        animateStatusText(classicStatusText,statusMsg)
 
         if (
             state == ClassicState.DISCONNECTED ||
             state is ClassicState.FAILED
-        )   if (activeTab == "CLASSIC"){
+        )   if (activeTab == ActiveTab.CLASSIC){
 
             bottomSheetDialog?.dismiss()
 
@@ -977,7 +1033,7 @@ class DeviceAdapter(
         view.findViewById<TextView>(R.id.deviceSignal).text =
             view.context.getString(R.string.rssi, item.rssi)
 
-        view.findViewById<Button>(R.id.connectBtn).apply {
+        view.findViewById< MaterialButton>(R.id.connectBtn).apply {
             isEnabled = false       // ADD THIS
             alpha = 0.4f            // ADD THIS
             isAllCaps = false

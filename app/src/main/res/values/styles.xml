@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="ProfessionalPrimaryButton"
+        parent="Widget.Material3.Button">
+
+        <item name="cornerRadius">12dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">15sp</item>
+
+    </style>
+
+    <style name="ProfessionalSecondaryButton"
+        parent="Widget.Material3.Button.OutlinedButton">
+
+        <item name="cornerRadius">10dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">14sp</item>
+
+    </style>
+
+</resources>
