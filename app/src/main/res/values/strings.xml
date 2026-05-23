@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name" translatable="false">My Application</string>
     <string name="nearby_ble_devices" translatable="false">Nearby BLE Devices 📡</string>
+    <string name="nearby_classic_devices" translatable="false">Nearby Classic Devices 📡</string>
     <string name="disconnect" translatable="false">Disconnect ❌</string>
     <string name="stop_scan" translatable="false">Stop Scan ⏹️</string>
     <string name="refresh" translatable="false">Refresh 🔄</string>

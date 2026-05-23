@@ -16,7 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel // Added for onDestroy
 
 import kotlinx.coroutines.launch // Added for observeFlows
-
+const val RECONNECT_MAX_ATTEMPTS= ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS
 class ClassicBluetoothService : Service() {
 
     inner class LocalBinder : Binder() {
@@ -28,6 +28,7 @@ class ClassicBluetoothService : Service() {
     // Using a SupervisorJob allows child coroutines to fail independently
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastNotifTime = 0L
+
 
 
     private val channelId = "classic_bt_channel"
@@ -115,7 +116,7 @@ class ClassicBluetoothService : Service() {
                             "Disconnected"
 
                         is ClassicState.RECONNECTING ->
-                            "Reconnecting… (${state.attempt}/5)"
+                            "Reconnecting… (${state.attempt}/$RECONNECT_MAX_ATTEMPTS)"
 
                         is ClassicState.FAILED -> {
 

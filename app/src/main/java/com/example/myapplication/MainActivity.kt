@@ -44,6 +44,8 @@ class MainActivity : AppCompatActivity() {
     // ─── UI State ─────────────────────────────────────────────────────────────
     private lateinit var listView: ListView
     private lateinit var statusText: TextView
+    private lateinit var bleHeaderText: TextView
+    private lateinit var classicTextHeader: TextView
     private lateinit var deviceAdapter: DeviceAdapter
     private var isScanning = false
     private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -456,17 +458,58 @@ class MainActivity : AppCompatActivity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(TextView(this@MainActivity).apply {
+                bleHeaderText = TextView(this@MainActivity).apply {
                 text = getString(R.string.nearby_ble_devices)
                 textSize = 16f
                 setTextColor(getColor(R.color.color_text_primary))
                 setTypeface(null, Typeface.BOLD)
                 letterSpacing = 0.10f
-                setPadding(24.dp(context), 32.dp(context), 24.dp(context), 6.dp(context))
-            })
-            addView(statusText)}
+                setPadding(
+                    24.dp(this@MainActivity),
+                    32.dp(this@MainActivity),
+                    24.dp(this@MainActivity),
+                    6.dp(this@MainActivity)
+                )
+            }
+                classicTextHeader = TextView(this@MainActivity).apply {
+                text = getString(R.string.nearby_classic_devices)
 
-        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                textSize = 16f
+
+                setTextColor(getColor(R.color.color_text_primary))
+
+                setTypeface(null, Typeface.BOLD)
+
+                letterSpacing = 0.10f
+
+                setPadding(
+                    24.dp(this@MainActivity),
+                    32.dp(this@MainActivity),
+                    24.dp(this@MainActivity),
+                    6.dp(this@MainActivity)
+                )
+
+                visibility = View.GONE
+            }
+
+            addView(bleHeaderText)
+            addView(classicTextHeader)}
+
+        val btnRow = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(
+                    16.dp(context),
+                    0,
+                    16.dp(context),
+                    10.dp(context)
+                )
+            }
+        }
         val refreshBtn = MaterialButton(this).apply {
             minHeight = 0
             minimumHeight = 0
@@ -522,12 +565,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnRow.addView(refreshBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        btnRow.addView(stopBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        btnRow.addView(disconnectBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        btnRow.addView(refreshBtn,
+            LinearLayout.LayoutParams(0, -2, 1f).apply {
+                marginEnd = 6.dp(this@MainActivity)
+            }
+        )
+
+        btnRow.addView(stopBtn,
+            LinearLayout.LayoutParams(0, -2, 1f).apply {
+                marginEnd = 6.dp(this@MainActivity)
+            }
+        )
+
+        btnRow.addView(disconnectBtn,
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
 
         layout.addView(btnRow)
-        layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
+
         // ─── Tab buttons ──────────────────────────────────────────────────────────
         bleTabBtn = MaterialButton(this).apply {
 
@@ -575,7 +630,21 @@ class MainActivity : AppCompatActivity() {
             stateListAnimator = null
         }
 
-        val tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabRow = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(
+                    16.dp(context),
+                    0,
+                    16.dp(context),
+                    14.dp(context)
+                )
+            }
+        }
         tabRow.addView(bleTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
         tabRow.addView(classicTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
 
@@ -598,6 +667,7 @@ class MainActivity : AppCompatActivity() {
 // Add these views to layout:
         layout.addView(tabRow)
         layout.addView(classicStatusText)
+        layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
         layout.addView(classicListView, LinearLayout.LayoutParams(-1, 0, 1f))
 
 // ─── Tab switching logic ──────────────────────────────────────────────────
@@ -605,6 +675,8 @@ class MainActivity : AppCompatActivity() {
             activeTab= ActiveTab.BLE
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
             bleTabBtn.setTextColor(getColor(R.color.color_text_primary))
+            bleHeaderText.visibility = View.VISIBLE
+            classicTextHeader.visibility = View.GONE
             classicTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
             classicTabBtn.setTextColor(getColor(R.color.color_text_secondary))
             statusText.visibility = View.VISIBLE
@@ -618,6 +690,8 @@ class MainActivity : AppCompatActivity() {
             classicTabBtn.setTextColor(getColor(R.color.color_text_primary))
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
             bleTabBtn.setTextColor(getColor(R.color.color_text_secondary))
+            bleHeaderText.visibility = View.GONE
+            classicTextHeader.visibility = View.VISIBLE
             statusText.visibility = View.GONE
             listView.visibility = View.GONE
             classicStatusText.visibility = View.VISIBLE

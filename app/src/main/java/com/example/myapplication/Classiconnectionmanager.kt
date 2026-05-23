@@ -30,9 +30,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         private const val READ_INACTIVITY_MS       = 30_000L
         private const val READ_INACTIVITY_CHECK_MS =  5_000L
         private const val WRITE_TIMEOUT_MS         =  5_000L
-        private const val RECONNECT_BASE_DELAY_MS  =  1_000L
-        private const val RECONNECT_MAX_DELAY_MS   = 30_000L
-        private const val RECONNECT_MAX_ATTEMPTS   =  5
+        const val RECONNECT_MAX_ATTEMPTS   =  3
         private const val FAILURE_COOLDOWN_MS      = 60_000L
     }
 
@@ -351,11 +349,13 @@ class ClassicConnectionManager(private val appContext: Context) {
         val device = lastDevice ?: return
 
         reconnectJob = managerScope.launch {
+            delay(600)
             val attempt= _reconnectAttempts.incrementAndGet()
-            val delay = minOf(
-                RECONNECT_BASE_DELAY_MS * (1L shl (reconnectAttempts - 1)),
-                RECONNECT_MAX_DELAY_MS
-            )
+            val delay = when (attempt) {
+                1 -> 800L
+                2 -> 1600L
+                else -> 3000L
+            }
             updateState(ClassicState.RECONNECTING(attempt))
             logEvent("Reconnecting… attempt $reconnectAttempts/$RECONNECT_MAX_ATTEMPTS")
             delay(delay)
