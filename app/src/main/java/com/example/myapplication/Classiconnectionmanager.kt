@@ -315,11 +315,9 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── Send with Write Timeout ───────────────────────────
-    @Suppress("unused")
-    fun sendData(data: ByteArray, onResult: ((WriteQueue.WriteResult) -> Unit)? = null) {
-        if (writeQueue?.enqueue(data, onResult) == false) {
-            onResult?.invoke(WriteQueue.WriteResult.Failure("Queue full"))
-        }
+    // Change return type from Unit to Boolean:
+    fun sendData(data: ByteArray, onResult: ((WriteQueue.WriteResult) -> Unit)? = null): Boolean {
+        return writeQueue?.enqueue(data, onResult) ?: false
     }
 
 

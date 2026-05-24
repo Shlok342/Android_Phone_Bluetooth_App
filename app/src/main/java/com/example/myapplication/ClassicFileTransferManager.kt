@@ -106,6 +106,8 @@ class ClassicFileTransferManager(
      * peekAt supports zero-copy inspection at any logical offset without
      * advancing the read pointer, eliminating repeated toByteArray() allocations.
      */
+    // ADD this property to the class:
+    @Volatile private var avgAckLatencyMs: Long = 0L
     private fun handleParseFailure(
         seq: Int,
         failure: ParseFailure,
@@ -137,13 +139,7 @@ class ClassicFileTransferManager(
 
         }
 
-        runCatching {
-            sendPacket(
-                seq,
-                TYPE_ERROR,
-                byteArrayOf(errorCode)
-            )
-        }
+
 
         _state.value = FileTransferState.Failed(
             filename = filename,
@@ -152,7 +148,7 @@ class ClassicFileTransferManager(
         )
     }
 
-    fun sendPacket( _seq: Int, _type: Byte, _payload: ByteArray) {}
+
 
     private class RingBuffer(val cap: Int) {
         private val buf  = ByteArray(cap)
@@ -380,6 +376,7 @@ class ClassicFileTransferManager(
 
         // ACK processor: runs in parallel with chunk sending.
         // Releases one window permit per newly-acknowledged chunk.
+        val doSendJob = currentCoroutineContext()[Job]!!
         val ackJob = scope.launch {
             for (ack in ackCh) {
                 if (ack.payload.size < 4) {
@@ -391,7 +388,8 @@ class ClassicFileTransferManager(
                         direction = TransferDirection.SEND
                     )
 
-                    continue
+                    doSendJob.cancel()   // ← ADD
+                    break
                 }
                 val ackedSeq = rU32(ack.payload, 0)
 
@@ -410,8 +408,8 @@ class ClassicFileTransferManager(
                         filename = filename,
                         direction = TransferDirection.SEND
                     )
-
-                    continue
+                    doSendJob.cancel()   // ← ADD
+                    break
                 }
 
                 val newly = ackedSeq - lastAcked
@@ -446,8 +444,16 @@ class ClassicFileTransferManager(
 
                         // Backpressure: block until a window slot is free.
                         // No delay() needed — this is true flow control.
-                        window.acquire()
-
+                        val t0 = System.currentTimeMillis()
+                        withTimeoutOrNull(TIMEOUT_MS) { window.acquire() }
+                            ?: throw IOException("Flow-control timeout — receiver stopped ACKing")
+                        val ackLatency = System.currentTimeMillis() - t0
+                        if (ackLatency > 0) {
+                            avgAckLatencyMs = (avgAckLatencyMs * 3 + ackLatency) / 4
+                        }
+                        if (avgAckLatencyMs > 500L) {
+                            delay((avgAckLatencyMs / WINDOW_SIZE).coerceIn(20L, 200L))
+                        }
                         sendPacket(session, chunkSeq++, TYPE_CHUNK, payload)
                         bytesSent += n
                         _state.value = FileTransferState.Sending(filename, bytesSent, fileSize)
@@ -456,10 +462,10 @@ class ClassicFileTransferManager(
                 }
                 ?: throw IOException("Cannot open InputStream for URI")
 
-            // Drain window: acquire all permits → all outstanding chunks were ACKed
+            // Drain window: all outstanding chunks must be ACKed before DONE
             repeat(WINDOW_SIZE) { window.acquire() }
 
-            // ── DONE handshake ─────────────────────────────────────────────────
+
             val donePay = ByteArray(4).also { wU32(it, 0, fileCrc.value.toInt()) }
             sendPacket(session, nextSeq++, TYPE_DONE, donePay)
 
@@ -480,9 +486,14 @@ class ClassicFileTransferManager(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = FileTransferState.Failed(filename,e.message ?: "Send failed",
-                TransferDirection.SEND)
-            runCatching { sendPacket(session, nextSeq, TYPE_ERROR, byteArrayOf(0x01)) }
+            val reason = when {
+                e.message?.contains("Flow-control timeout") == true ->
+                    "Device too slow to keep up — try a smaller file or move closer"
+                e.message?.contains("Write queue full") == true ->
+                    "Send buffer full — connection may be congested"
+                else -> e.message ?: "Send failed"
+            }
+            _state.value = FileTransferState.Failed(filename, reason, TransferDirection.SEND)
         } finally {
             ackJob.cancel()
             connectionManager.setTransferMode(false)
@@ -643,7 +654,9 @@ class ClassicFileTransferManager(
         payload.copyInto(packet, HEADER_SIZE)
         val pCrc = if (pLen > 0) { val c = CRC32(); c.update(payload); c.value } else 0L
         wU32(packet, HEADER_SIZE + pLen, pCrc.toInt())
-        connectionManager.sendData(packet)
+        if (!connectionManager.sendData(packet)) {
+            throw IOException("Write queue full — transfer aborted")
+        }
     }
 
     // ── Payload builders ──────────────────────────────────────────────────────
@@ -752,6 +765,7 @@ class ClassicFileTransferManager(
     }
 
     fun reset() {
+        avgAckLatencyMs = 0L
         transferJob?.cancel()
         ring.reset()
         drainChannels()

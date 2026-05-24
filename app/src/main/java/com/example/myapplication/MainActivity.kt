@@ -374,7 +374,7 @@ class MainActivity : AppCompatActivity() {
             }
             is FileTransferState.Done -> {
                 val dir = if (state.direction== TransferDirection.SEND) "Sent" else "Saved to Downloads"
-                transferStatusText.text = "✅ $dir: ${state.filename}"
+                transferStatusText.text = getString(R.string.transfer_status, dir, state.filename)
             }
             is FileTransferState.Failed -> {
                 transferStatusText.text = getString(R.string.transfer_failed, state.reason)
@@ -731,8 +731,8 @@ class MainActivity : AppCompatActivity() {
             ).apply { setMargins(16.dp(context), 0, 16.dp(context), 8.dp(context)) }
             visibility = View.GONE
         }
-        val sendFileBtn = MaterialButton(this).apply {
-            text = "Send File 📁"
+        val featuresBtn = MaterialButton(this).apply {
+            text = context.getString(R.string.features_button_txt)
             textSize = 12f
             letterSpacing = 0.04f
             setTextColor(getColor(R.color.color_text_primary))
@@ -740,15 +740,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(18, 0, 18, 0)
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             stateListAnimator = null
-            setOnClickListener {
-                if (classicService?.connectionManager?.isConnected() == true) {
-                    filePickerLauncher.launch("*/*")
-                } else {
-                    Toast.makeText(this@MainActivity, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
-                }
-            }
+            setOnClickListener { showClassicFeaturesSheet() }
         }
-        classicActionsRow.addView(sendFileBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        classicActionsRow.addView(featuresBtn, LinearLayout.LayoutParams(0, -2, 1f))
 
         transferStatusText = TextView(this).apply {
             textSize = 12f
@@ -1161,7 +1155,50 @@ class MainActivity : AppCompatActivity() {
         bluetoothService?.connect(device)
     }
 
+    private fun showClassicFeaturesSheet() {
+        val sheet = BottomSheetDialog(this)
 
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 28, 32, 40)
+        }
+
+        val title = TextView(this).apply {
+            text = context.getString(R.string.classic_features)
+            textSize = 17f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(getColor(R.color.color_text_primary))
+            setPadding(0, 0, 0, 20.dp(context))
+        }
+        container.addView(title)
+
+        val sendFileBtn = MaterialButton(this).apply {
+            text = getString(R.string.send_file)
+            textSize = 13f
+            letterSpacing = 0.03f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            stateListAnimator = null
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 10.dp(context) }
+            setOnClickListener {
+                sheet.dismiss()
+                if (classicService?.connectionManager?.isConnected() == true) {
+                    filePickerLauncher.launch("*/*")
+                } else {
+                    Toast.makeText(this@MainActivity, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        container.addView(sendFileBtn)
+
+        // Future feature buttons go here
+
+        sheet.setContentView(container)
+        sheet.show()
+    }
     override fun onDestroy() {
         super.onDestroy()
         delayedStatusRunnable?.let {

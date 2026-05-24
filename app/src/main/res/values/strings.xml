@@ -35,8 +35,13 @@
     <string name="CLASSICTABBUTTON">Classic</string>
     <string name="state_of_classic_devices">Classic: Idle</string>
     <string name="with">🔐 %1$s with %2$s…</string>
-    <string name="sending_classic">⬆ Sending %1$s: %2$d%</string>
-    <string name="receiving_classic">⬇ Receiving %1$s: %2$d%</string>
+    <string name="sending_classic">⬆ Sending %1$s: %2$d%%</string>
+    <string name="receiving_classic">⬇ Receiving %1$s: %2$d%%</string>
+
     <string name="transfer_failed">❌ Transfer failed: %1$s</string>
     <string name="transfer_cancelled">⚠ Transfer cancelled</string>
+    <string name="transfer_status">✅ %1$s: %2$s</string>
+    <string name="send_file">Send File 📁</string>
+    <string name="features_button_txt">Features ⚙️</string>
+    <string name="classic_features">Classic Features</string>
 </resources>
