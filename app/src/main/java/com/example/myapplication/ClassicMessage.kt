@@ -67,6 +67,7 @@ sealed class ClassicMessage {
 sealed class ParseFailure {
     object InvalidLength : ParseFailure()
     object InvalidChecksum : ParseFailure()
+    object InvalidSequence : ParseFailure()
 
     data class UnsupportedOpcode(
         val opcode: Int

@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel // Added for onDestroy
-
+import android.content.ContentValues
+import android.os.Environment
+import android.provider.MediaStore
 import kotlinx.coroutines.launch // Added for observeFlows
 const val RECONNECT_MAX_ATTEMPTS= ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS
 class ClassicBluetoothService : Service() {
@@ -37,6 +39,9 @@ class ClassicBluetoothService : Service() {
 
     private var _connectionManager:
             ClassicConnectionManager? = null
+    private var _fileTransferManager: ClassicFileTransferManager? = null
+    val fileTransferManager: ClassicFileTransferManager
+        get() = requireNotNull(_fileTransferManager) { "FileTransferManager not initialized" }
 
     @Suppress("SameParameterValue")
     private fun updateBluetoothForeground(statusText: String) {
@@ -57,7 +62,27 @@ class ClassicBluetoothService : Service() {
             )
         }
     }
-
+    private fun saveReceivedFile(filename: String, bytes: ByteArray) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+                contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+            } else {
+                @Suppress("DEPRECATION")
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                dir.mkdirs()
+                java.io.File(dir, filename).writeBytes(bytes)
+            }
+        } catch (_: Exception) {}
+    }
     val connectionManager: ClassicConnectionManager
         get() = requireNotNull(_connectionManager) {
             "ConnectionManager not initialized"
@@ -68,6 +93,15 @@ class ClassicBluetoothService : Service() {
     override fun onCreate() {
         super.onCreate() // Best practice: call super first
         _connectionManager = ClassicConnectionManager(this)
+        _fileTransferManager = ClassicFileTransferManager(
+            connectionManager = _connectionManager!!,
+            context           = this,
+            scope             = serviceScope
+        ).also { mgr ->
+            mgr.onFileReceived = { filename, _ ->
+                updateNotification("📥 Received: $filename")
+            }
+        }
         createNotificationChannel()
         // Clean, safe, and handles Android 14+ automatically
         updateBluetoothForeground("Classic BT Ready")
@@ -85,8 +119,9 @@ class ClassicBluetoothService : Service() {
         serviceScope.cancel()
 
         // Safeguard against uninitialized connectionManager if onCreate failed early
+        _fileTransferManager?.reset()
+        _fileTransferManager = null
         _connectionManager?.let {
-
             it.disconnect()
             it.destroy()
         }

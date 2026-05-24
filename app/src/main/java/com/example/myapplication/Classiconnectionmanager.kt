@@ -65,6 +65,18 @@ class ClassicConnectionManager(private val appContext: Context) {
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val events: SharedFlow<String> = _events.asSharedFlow()
+    // ─── Raw bytes (used by FileTransferManager) ────────────────────────
+    // ─── Raw byte stream (consumed by ClassicFileTransferManager) ──────────
+    private val _rawBytes = MutableSharedFlow<ByteArray>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val rawBytes: SharedFlow<ByteArray> = _rawBytes.asSharedFlow()
+
+    @Volatile private var isTransferMode = false
+
+    fun setTransferMode(enabled: Boolean) { isTransferMode = enabled }
 
     private fun logEvent(msg: String) {
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
@@ -287,7 +299,8 @@ class ClassicConnectionManager(private val appContext: Context) {
                     val bytes = inputStream?.read(buffer) ?: break
                     if (bytes > 0) {
                         lastReadTime = System.currentTimeMillis()
-                        parser.feed(buffer, bytes)        // ← replaces all messageBuffer logic
+                        _rawBytes.tryEmit(buffer.copyOfRange(0, bytes))
+                        if (!isTransferMode) parser.feed(buffer, bytes)
                     }
                 } catch (_: IOException) {
                     if (!isIntentionalDisconnect &&

@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
+import android.net.Uri
 import com.google.android.material.button.MaterialButton
 data class BleDeviceItem(
     val name: String,
@@ -66,6 +67,22 @@ class MainActivity : AppCompatActivity() {
     private var classicCollectorJob: Job? = null
     private var activeTab = ActiveTab.BLE
     private lateinit var backgroundView: GlassmorphicBackgroundView
+    private lateinit var classicActionsRow: LinearLayout
+    private lateinit var transferStatusText: TextView
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri ?: return@registerForActivityResult
+        val svc = classicService ?: run {
+            Toast.makeText(this, "Classic service not ready", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        if (svc.connectionManager.isConnected()) {
+            svc.fileTransferManager.sendFile(uri)
+        } else {
+            Toast.makeText(this, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
+        }
+    }
     // ─── Classic Service Binding ──────────────────────────────────────────────
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
@@ -103,6 +120,21 @@ class MainActivity : AppCompatActivity() {
                     launch {
                         manager.events.collect { event ->
                             showDataBottomSheet("[Log] $event")
+                        }
+                    }
+                    launch {
+                        service.fileTransferManager.state.collect { state ->
+                            val msg = when (state) {
+                                is FileTransferState.Idle        -> null
+                                is FileTransferState.Sending     -> "⬆ ${state.filename}: ${(state.progress * 100).toInt()}%"
+                                is FileTransferState.Receiving   -> "⬇ ${state.filename}: ${(state.progress * 100).toInt()}%"
+                                is FileTransferState.Done        -> if (state.direction == TransferDirection.SEND) "✅ Sent: ${state.filename}"
+                                else "✅ Saved: ${state.filename}"
+                                is FileTransferState.Failed      -> "❌ ${state.reason}"
+                                is FileTransferState.Cancelled -> "⚠ Transfer cancelled"
+                            }
+                            if (msg != null) showDataBottomSheet("[Transfer] $msg")
+                            updateTransferUi(state)
                         }
                     }
                 }
@@ -211,6 +243,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+
 
     // ─── Bottom Sheet for Live Data ───────────────────────────────────────────
     private var bottomSheetDialog: BottomSheetDialog? = null
@@ -323,7 +357,33 @@ class MainActivity : AppCompatActivity() {
             bottomSheetDialog?.show()
         }
     }
-
+    private fun updateTransferUi(state: FileTransferState) {
+        when (state) {
+            is FileTransferState.Idle -> {
+                transferStatusText.visibility = View.GONE
+            }
+            is FileTransferState.Sending -> {
+                val pct = (state.progress * 100).toInt()
+                transferStatusText.text = getString(R.string.sending_classic, state.filename, pct)
+                transferStatusText.visibility = (View.VISIBLE)
+            }
+            is FileTransferState.Receiving -> {
+                val pct = (state.progress * 100).toInt()
+                transferStatusText.text = getString(R.string.receiving_classic, state.filename, pct)
+                transferStatusText.visibility = View.VISIBLE
+            }
+            is FileTransferState.Done -> {
+                val dir = if (state.direction== TransferDirection.SEND) "Sent" else "Saved to Downloads"
+                transferStatusText.text = "✅ $dir: ${state.filename}"
+            }
+            is FileTransferState.Failed -> {
+                transferStatusText.text = getString(R.string.transfer_failed, state.reason)
+            }
+            is FileTransferState.Cancelled -> {
+                transferStatusText.text = getString(R.string.transfer_cancelled)
+            }
+        }
+    }
     // ─── Service Binding ──────────────────────────────────────────────────────
     private var bluetoothService: BluetoothService? = null
     private var isBound = false
@@ -662,11 +722,46 @@ class MainActivity : AppCompatActivity() {
             classicService?.connectionManager?.connect(device)
         }
         classicListView.adapter = classicAdapter
+        // ── Classic file transfer controls ────────────────────────────────────
+        classicActionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(16.dp(context), 0, 16.dp(context), 8.dp(context)) }
+            visibility = View.GONE
+        }
+        val sendFileBtn = MaterialButton(this).apply {
+            text = "Send File 📁"
+            textSize = 12f
+            letterSpacing = 0.04f
+            setTextColor(getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            setPadding(18, 0, 18, 0)
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            stateListAnimator = null
+            setOnClickListener {
+                if (classicService?.connectionManager?.isConnected() == true) {
+                    filePickerLauncher.launch("*/*")
+                } else {
+                    Toast.makeText(this@MainActivity, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        classicActionsRow.addView(sendFileBtn, LinearLayout.LayoutParams(0, -2, 1f))
 
+        transferStatusText = TextView(this).apply {
+            textSize = 12f
+            setTextColor(getColor(R.color.color_text_secondary))
+            setPadding(24.dp(context), 4.dp(context), 24.dp(context), 4.dp(context))
+            visibility = View.GONE
+        }
 // Insert tab row BEFORE the existing btnRow in layout
 // Add these views to layout:
         layout.addView(tabRow)
         layout.addView(classicStatusText)
+        layout.addView(classicActionsRow)
+        layout.addView(transferStatusText)
         layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
         layout.addView(classicListView, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -683,6 +778,9 @@ class MainActivity : AppCompatActivity() {
             listView.visibility = View.VISIBLE
             classicStatusText.visibility = View.GONE
             classicListView.visibility = View.GONE
+            classicActionsRow.visibility = View.GONE
+            transferStatusText.visibility = View.GONE
+
         }
         classicTabBtn.setOnClickListener {
             activeTab = ActiveTab.CLASSIC
@@ -696,6 +794,8 @@ class MainActivity : AppCompatActivity() {
             listView.visibility = View.GONE
             classicStatusText.visibility = View.VISIBLE
             classicListView.visibility = View.VISIBLE
+            classicActionsRow.visibility = View.VISIBLE
+
             startClassicScan()
         }
 
