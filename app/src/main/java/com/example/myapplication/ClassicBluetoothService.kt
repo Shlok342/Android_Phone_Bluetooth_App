@@ -18,6 +18,12 @@ import android.content.ContentValues
 import android.os.Environment
 import android.provider.MediaStore
 import kotlinx.coroutines.launch // Added for observeFlows
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 const val RECONNECT_MAX_ATTEMPTS= ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS
 class ClassicBluetoothService : Service() {
 
@@ -30,8 +36,11 @@ class ClassicBluetoothService : Service() {
     // Using a SupervisorJob allows child coroutines to fail independently
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastNotifTime = 0L
+    private var _audioProfileManager:
+            ClassicAudioProfileManager? = null
 
-
+    val audioProfileManager: ClassicAudioProfileManager
+        get() = requireNotNull(_audioProfileManager)
 
     private val channelId = "classic_bt_channel"
     private val notifId = 2
@@ -83,6 +92,58 @@ class ClassicBluetoothService : Service() {
             }
         } catch (_: Exception) {}
     }
+    private val a2dpReceiver =
+        object : BroadcastReceiver() {
+
+            override fun onReceive(
+                context: Context,
+                intent: Intent
+            ) {
+
+                val device =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        intent.getParcelableExtra(
+                            BluetoothDevice.EXTRA_DEVICE,
+                            BluetoothDevice::class.java
+                        )
+                    else
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(
+                            BluetoothDevice.EXTRA_DEVICE
+                        )
+
+                when (intent.action) {
+
+                    BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> {
+
+                        val state = intent.getIntExtra(
+                            BluetoothProfile.EXTRA_STATE,
+                            BluetoothProfile.STATE_DISCONNECTED
+                        )
+
+                        audioProfileManager
+                            .onA2dpConnectionStateChanged(
+                                device,
+                                state
+                            )
+                    }
+
+                    BluetoothA2dp.ACTION_PLAYING_STATE_CHANGED -> {
+
+                        val state = intent.getIntExtra(
+                            BluetoothProfile.EXTRA_STATE,
+                            BluetoothA2dp.STATE_NOT_PLAYING
+                        )
+
+                        audioProfileManager
+                            .onA2dpPlayingStateChanged(
+                                device,
+                                state
+                            )
+                    }
+                }
+            }
+        }
     val connectionManager: ClassicConnectionManager
         get() = requireNotNull(_connectionManager) {
             "ConnectionManager not initialized"
@@ -91,7 +152,21 @@ class ClassicBluetoothService : Service() {
     override fun onBind(intent: Intent): IBinder = binder
 
     override fun onCreate() {
-        super.onCreate() // Best practice: call super first
+        super.onCreate()
+        val filter = IntentFilter().apply {
+
+            addAction(
+                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED
+            )
+
+            addAction(
+                BluetoothA2dp.ACTION_PLAYING_STATE_CHANGED
+            )
+        }
+
+        registerReceiver(a2dpReceiver, filter)// Best practice: call super first
+        _audioProfileManager =
+            ClassicAudioProfileManager(this)
         _connectionManager = ClassicConnectionManager(this)
         _fileTransferManager = ClassicFileTransferManager(
             connectionManager = _connectionManager!!,
@@ -117,7 +192,9 @@ class ClassicBluetoothService : Service() {
     override fun onDestroy() {
         // FIX: Cancel the scope to stop collecting flows and prevent memory leaks
         serviceScope.cancel()
-
+        _audioProfileManager?.destroy()
+        _audioProfileManager = null
+        unregisterReceiver(a2dpReceiver)
         // Safeguard against uninitialized connectionManager if onCreate failed early
         _fileTransferManager?.reset()
         _fileTransferManager = null

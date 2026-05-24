@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private val deviceList = mutableListOf<BleDeviceItem>()
     private val deviceMap = mutableMapOf<String, BluetoothDevice>()
     // ─── Classic State ────────────────────────────────────────────────────────
-     // "BLE" or "CLASSIC"
+    // "BLE" or "CLASSIC"
     private var classicServiceStarted = false
     private val classicDeviceList = mutableListOf<ClassicDeviceItem>()
     private val classicDeviceMap = mutableMapOf<String, BluetoothDevice>()
@@ -135,6 +135,37 @@ class MainActivity : AppCompatActivity() {
                             }
                             if (msg != null) showDataBottomSheet("[Transfer] $msg")
                             updateTransferUi(state)
+                        }
+                    }
+                    launch {
+
+                        service.audioProfileManager.connectionInfo.collect { info ->
+
+                            val msg = when (val state = info.state) {
+
+                                AudioProfileState.IDLE ->
+                                    "Audio: Idle"
+
+                                AudioProfileState.CONNECTING ->
+                                    "🎧 Audio Connecting..."
+
+                                AudioProfileState.CONNECTED ->
+                                    "🎧 Audio Connected: ${info.deviceName}"
+
+                                AudioProfileState.PLAYING ->
+                                    "▶ Playing on ${info.deviceName}"
+
+                                AudioProfileState.DISCONNECTED ->
+                                    "🔇 Audio Disconnected"
+
+                                is AudioProfileState.RECONNECTING ->
+                                    "🔄 Audio Reconnecting (${state.attempt}/3)"
+
+                                is AudioProfileState.FAILED ->
+                                    "❌ Audio Failed: ${state.reason}"
+                            }
+
+                            showDataBottomSheet("[A2DP] $msg")
                         }
                     }
                 }
@@ -518,7 +549,7 @@ class MainActivity : AppCompatActivity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-                bleHeaderText = TextView(this@MainActivity).apply {
+            bleHeaderText = TextView(this@MainActivity).apply {
                 text = getString(R.string.nearby_ble_devices)
                 textSize = 16f
                 setTextColor(getColor(R.color.color_text_primary))
@@ -531,7 +562,7 @@ class MainActivity : AppCompatActivity() {
                     6.dp(this@MainActivity)
                 )
             }
-                classicTextHeader = TextView(this@MainActivity).apply {
+            classicTextHeader = TextView(this@MainActivity).apply {
                 text = getString(R.string.nearby_classic_devices)
 
                 textSize = 16f
@@ -923,45 +954,45 @@ class MainActivity : AppCompatActivity() {
         val name = classicService?.connectionManager?.connectedDeviceName ?: "Device"
         val statusMsg = when (state) {
 
-                ClassicState.IDLE ->
-                    "Classic: Idle"
+            ClassicState.IDLE ->
+                "Classic: Idle"
 
-                ClassicState.CONNECTING ->
-                    "Classic: Connecting to $name..."
+            ClassicState.CONNECTING ->
+                "Classic: Connecting to $name..."
 
-                ClassicState.CONNECTED ->
-                    "🟢 Classic: Connected to $name ($address)"
+            ClassicState.CONNECTED ->
+                "🟢 Classic: Connected to $name ($address)"
 
-                ClassicState.DISCONNECTED ->
-                    "🔴 Classic: Disconnected"
+            ClassicState.DISCONNECTED ->
+                "🔴 Classic: Disconnected"
 
-                is ClassicState.RECONNECTING ->
-                    "🔄 Classic: Reconnecting… (${state.attempt}/5)"
+            is ClassicState.RECONNECTING ->
+                "🔄 Classic: Reconnecting… (${state.attempt}/5)"
 
-                is ClassicState.FAILED -> {
+            is ClassicState.FAILED -> {
 
-                    when (state.reason) {
+                when (state.reason) {
 
-                        FailureReason.Timeout ->
-                            "⏱ Classic: Timed out"
+                    FailureReason.Timeout ->
+                        "⏱ Classic: Timed out"
 
-                        FailureReason.MaxReconnectAttempts ->
-                            "❌ Classic: Reconnect limit reached"
+                    FailureReason.MaxReconnectAttempts ->
+                        "❌ Classic: Reconnect limit reached"
 
-                        FailureReason.ConnectionLost ->
-                            "❌ Classic: Connection lost"
+                    FailureReason.ConnectionLost ->
+                        "❌ Classic: Connection lost"
 
-                        FailureReason.PermissionDenied ->
-                            "❌ Classic: Permission denied"
+                    FailureReason.PermissionDenied ->
+                        "❌ Classic: Permission denied"
 
-                        FailureReason.SocketClosed ->
-                            "❌ Classic: Socket closed"
+                    FailureReason.SocketClosed ->
+                        "❌ Classic: Socket closed"
 
-                        is FailureReason.Unknown ->
-                            "❌ Classic: ${state.reason.message}"
-                    }
+                    is FailureReason.Unknown ->
+                        "❌ Classic: ${state.reason.message}"
                 }
             }
+        }
         animateStatusText(classicStatusText,statusMsg)
 
         if (
