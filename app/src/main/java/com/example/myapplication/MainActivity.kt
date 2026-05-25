@@ -26,6 +26,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import android.net.Uri
 import com.google.android.material.button.MaterialButton
+import android.util.Log
 data class BleDeviceItem(
     val name: String,
     val address: String,
@@ -89,7 +90,46 @@ class MainActivity : AppCompatActivity() {
     fun Int.dp(context: Context): Int {
         return (this * context.resources.displayMetrics.density).toInt()
     }
+    private fun isProbablyClassicCapable(device: BluetoothDevice): Boolean {
 
+        return try {
+
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                false
+            } else {
+
+                when (device.type) {
+
+                    BluetoothDevice.DEVICE_TYPE_CLASSIC,
+                    BluetoothDevice.DEVICE_TYPE_DUAL -> true
+
+                    BluetoothDevice.DEVICE_TYPE_LE -> {
+
+                        // Some phones temporarily report LE before Android resolves properly.
+                        // If bluetoothClass exists, keep it.
+                        device.bluetoothClass != null
+                    }
+
+                    BluetoothDevice.DEVICE_TYPE_UNKNOWN -> {
+
+                        // UNKNOWN during discovery is extremely common on Android.
+                        // If bluetoothClass exists, it is usually a real Classic-capable device.
+                        device.bluetoothClass != null
+                    }
+
+                    else -> false
+                }
+            }
+
+        } catch (_: SecurityException) {
+
+            false
+        }
+    }
     private val classicConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = (binder as ClassicBluetoothService.LocalBinder).getService()
@@ -153,7 +193,7 @@ class MainActivity : AppCompatActivity() {
                                     "🎧 Audio Connected: ${info.deviceName}"
 
                                 AudioProfileState.PLAYING ->
-                                    "▶ Playing on ${info.deviceName}"
+                                    "▶ Playing on ${info.deviceName}" + if (info.codecName.isNotEmpty()) " · ${info.codecName}" else ""
 
                                 AudioProfileState.DISCONNECTED ->
                                     "🔇 Audio Disconnected"
@@ -197,28 +237,82 @@ class MainActivity : AppCompatActivity() {
                     else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
 
                     device ?: return
+                    Log.d(
+                        "CLASSIC_SCAN",
+                        "Found: ${device.name} | ${device.address} | type=${device.type}"
+                    )
 
-                    // ✅ Filter: only Classic or Dual, never BLE-only
                     val type = device.type
-                    // Only exclude confirmed BLE-only devices.
-                    // UNKNOWN (0) is returned during live discovery before Android resolves the type.
-                    if (type == BluetoothDevice.DEVICE_TYPE_LE) return
+
+                    if (!isProbablyClassicCapable(device)) {
+                        return
+                    }
 
                     val address = device.address
-                    if (classicDeviceMap.containsKey(address)) return
-
                     val name = try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-                        ) "Unknown" else device.name ?: "Unknown"
-                    } catch (_: SecurityException) { "Unknown" }
+                        if (
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                            != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            "Unknown"
+                        } else {
+                            device.name ?: "Unknown"
+                        }
+                    } catch (_: SecurityException) {
+                        "Unknown"
+                    }
 
-                    classicDeviceMap[address] = device
-                    classicDeviceList.add(ClassicDeviceItem(name, address, type))
-                    runOnUiThread { classicAdapter.notifyDataSetChanged() }
+                    val existingIndex =
+                        classicDeviceList.indexOfFirst { it.address == address }
+
+                    if (existingIndex != -1) {
+
+                        val existing = classicDeviceList[existingIndex]
+
+                        val improvedName =
+                            existing.name == "Unknown" && name != "Unknown"
+
+                        val improvedType =
+                            existing.type == BluetoothDevice.DEVICE_TYPE_UNKNOWN &&
+                                    type != BluetoothDevice.DEVICE_TYPE_UNKNOWN
+
+                        if (improvedName || improvedType) {
+
+                            classicDeviceList[existingIndex] =
+                                existing.copy(
+                                    name = if (improvedName) name else existing.name,
+                                    type = if (improvedType) type else existing.type
+                                )
+
+                            classicDeviceMap[address] = device
+
+                            runOnUiThread {
+                                classicAdapter.notifyDataSetChanged()
+                            }
+                        }
+
+                    } else {
+
+                        classicDeviceMap[address] = device
+
+                        classicDeviceList.add(
+                            ClassicDeviceItem(name, address, type)
+                        )
+
+                        runOnUiThread {
+                            classicAdapter.notifyDataSetChanged()
+                        }
+                    }
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Classic scan done", Toast.LENGTH_SHORT).show() }
+
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Classic scan done", Toast.LENGTH_SHORT).show()}
+                    Log.d(
+                        "CLASSIC_SCAN",
+                        "Final classic device count = ${classicDeviceList.size}"
+                    )
+
 
                 }
                 BluetoothDevice.ACTION_PAIRING_REQUEST -> {
@@ -906,12 +1000,12 @@ class MainActivity : AppCompatActivity() {
         classicDeviceMap.clear()
         classicAdapter.notifyDataSetChanged()
 
-        // ── Pre-load already-paired Classic/Dual devices ──────────────────
+            // ── Pre-load already-paired Classic/Dual devices ──────────────────
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-                == PackageManager.PERMISSION_GRANTED
-            ) {
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
                 adapter.bondedDevices?.forEach { device ->
                     val type = device.type
                     if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC &&
@@ -929,7 +1023,7 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
             == PackageManager.PERMISSION_GRANTED
-        ) {
+            ) {
             if (adapter.isDiscovering) adapter.cancelDiscovery()
         }
 
@@ -937,13 +1031,12 @@ class MainActivity : AppCompatActivity() {
             val started = adapter.startDiscovery()
             Toast.makeText(
                 this,
-                if (started) "Classic scan started ✅" else "Classic scan failed to start ❌",
-                Toast.LENGTH_SHORT
+                if (started) "Classic scan started ✅" else "Classic scan failed to start ❌", Toast.LENGTH_SHORT
             ).show()
         } catch (_: SecurityException) {
             Toast.makeText(this, "Permission missing for Classic scan", Toast.LENGTH_SHORT).show()
         }
-    }
+        }
 
     private fun stopClassicScan() {
         try { (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter.cancelDiscovery() } catch (_: SecurityException) {}
@@ -1091,7 +1184,7 @@ class MainActivity : AppCompatActivity() {
             deviceMap[address] = device
 
             if (isNewDevice) {
-                android.util.Log.d(
+                Log.d(
                     "BLE_SCAN",
                     "ADDING DEVICE: $name $address"
                 )
@@ -1317,6 +1410,7 @@ class ClassicDeviceAdapter(
         view.findViewById<TextView>(R.id.deviceSignal).text =
             if (item.type == BluetoothDevice.DEVICE_TYPE_DUAL) "Dual (Classic+BLE)" else "Classic"
         view.findViewById<Button>(R.id.connectBtn).apply {
+
             isAllCaps = false
             setOnClickListener {
                 deviceMap[item.address]?.let { connectCallback(it) }

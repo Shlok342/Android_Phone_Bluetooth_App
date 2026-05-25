@@ -9,7 +9,8 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicInteger
-
+import android.bluetooth.BluetoothCodecConfig
+import android.annotation.SuppressLint
 sealed class AudioProfileState {
     object IDLE : AudioProfileState()
 
@@ -33,7 +34,8 @@ sealed class AudioProfileState {
 data class AudioConnectionInfo(
     val state: AudioProfileState,
     val address: String = "",
-    val deviceName: String = ""
+    val deviceName: String = "",
+    val codecName: String = "Unknown"
 )
 
 class ClassicAudioProfileManager(
@@ -46,7 +48,7 @@ class ClassicAudioProfileManager(
 
     private val managerScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
+    @Volatile private var isIntentionalDisconnect = false
     private val _state =
         MutableStateFlow<AudioProfileState>(AudioProfileState.IDLE)
 
@@ -73,6 +75,58 @@ class ClassicAudioProfileManager(
         AtomicInteger(0)
 
     private var reconnectJob: Job? = null
+    // Replace resolveCodec entirely:
+    @SuppressLint("DiscouragedPrivateApi")
+    private fun resolveCodec(device: BluetoothDevice): String {
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return "SBC"
+        }
+
+        return try {
+
+            val codecStatus = a2dp?.javaClass
+                ?.getMethod("getCodecStatus", BluetoothDevice::class.java)
+                ?.invoke(a2dp, device)
+                ?: return "Unknown"
+
+            val codecConfig = codecStatus.javaClass
+                .getMethod("getCodecConfig")
+                .invoke(codecStatus)
+                ?: return "Unknown"
+
+            val codecType = codecConfig.javaClass
+                .getMethod("getCodecType")
+                .invoke(codecConfig) as? Int
+                ?: return "Unknown"
+
+            @Suppress("DEPRECATION")
+            when (codecType) {
+
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC ->
+                    "SBC"
+
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC ->
+                    "AAC"
+
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX ->
+                    "aptX"
+
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD ->
+                    "aptX HD"
+
+                BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC ->
+                    "LDAC"
+
+                else ->
+                    "Unknown ($codecType)"
+            }
+
+        } catch (_: Exception) {
+
+            "Unknown"
+        }
+    }
     private val profileListener: BluetoothProfile.ServiceListener =
         object : BluetoothProfile.ServiceListener {
 
@@ -89,12 +143,11 @@ class ClassicAudioProfileManager(
                 }
             }
             override fun onServiceDisconnected(profile: Int) {
-
                 if (profile == BluetoothProfile.A2DP) {
-
                     a2dp = null
-
                     updateState(AudioProfileState.DISCONNECTED)
+                    // Re-request proxy so it auto-recovers
+                    bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
                 }
             }
             }
@@ -144,9 +197,8 @@ class ClassicAudioProfileManager(
         when (state) {
 
             BluetoothProfile.STATE_CONNECTED -> {
-
+                isIntentionalDisconnect = false  // ← add
                 reconnectAttempts.set(0)
-
                 connectedDevice = device
 
                 updateState(
@@ -201,7 +253,7 @@ class ClassicAudioProfileManager(
     }
 
     private fun scheduleReconnect() {
-
+        if (isIntentionalDisconnect) return   // ← add this guard
         val device = connectedDevice ?: return
 
         if (reconnectAttempts.get() >= MAX_RECONNECT_ATTEMPTS) {
@@ -277,7 +329,8 @@ class ClassicAudioProfileManager(
             AudioConnectionInfo(
                 state = state,
                 address = device?.address ?: "",
-                deviceName = resolveName(device)
+                deviceName = resolveName(device),
+                codecName  = if (device != null) resolveCodec(device) else ""
             )
     }
 

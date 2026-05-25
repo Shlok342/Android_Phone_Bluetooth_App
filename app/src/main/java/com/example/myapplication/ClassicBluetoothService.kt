@@ -164,7 +164,11 @@ class ClassicBluetoothService : Service() {
             )
         }
 
-        registerReceiver(a2dpReceiver, filter)// Best practice: call super first
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(a2dpReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(a2dpReceiver, filter)
+        }// Best practice: call super first
         _audioProfileManager =
             ClassicAudioProfileManager(this)
         _connectionManager = ClassicConnectionManager(this)

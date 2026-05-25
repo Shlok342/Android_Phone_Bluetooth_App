@@ -8,8 +8,15 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- API < 31 Classic Bluetooth -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30"
+        tools:ignore="CoarseFineLocation" />
     <!-- Only for older Android (below API 31) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+
         tools:ignore="CoarseFineLocation" />
     <application
 
