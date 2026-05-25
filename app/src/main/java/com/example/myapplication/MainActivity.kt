@@ -26,7 +26,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import android.net.Uri
 import com.google.android.material.button.MaterialButton
-import android.util.Log
+
 data class BleDeviceItem(
     val name: String,
     val address: String,
@@ -90,46 +90,13 @@ class MainActivity : AppCompatActivity() {
     fun Int.dp(context: Context): Int {
         return (this * context.resources.displayMetrics.density).toInt()
     }
-    private fun isProbablyClassicCapable(device: BluetoothDevice): Boolean {
-
-        return try {
-
-            if (
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                false
-            } else {
-
-                when (device.type) {
-
-                    BluetoothDevice.DEVICE_TYPE_CLASSIC,
-                    BluetoothDevice.DEVICE_TYPE_DUAL -> true
-
-                    BluetoothDevice.DEVICE_TYPE_LE -> {
-
-                        // Some phones temporarily report LE before Android resolves properly.
-                        // If bluetoothClass exists, keep it.
-                        device.bluetoothClass != null
-                    }
-
-                    BluetoothDevice.DEVICE_TYPE_UNKNOWN -> {
-
-                        // UNKNOWN during discovery is extremely common on Android.
-                        // If bluetoothClass exists, it is usually a real Classic-capable device.
-                        device.bluetoothClass != null
-                    }
-
-                    else -> false
-                }
-            }
-
-        } catch (_: SecurityException) {
-
-            false
-        }
-    }
+    private val classicScanReceiver = ClassicScanReceiver(
+        classicDeviceList = classicDeviceList,
+        classicDeviceMap = classicDeviceMap,
+        permissionChecker = { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED },
+        onDeviceListChanged = { runOnUiThread { classicAdapter.notifyDataSetChanged() } },
+        onStatusUpdate = { msg -> runOnUiThread { classicStatusText.text = msg } }
+    )
     private val classicConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = (binder as ClassicBluetoothService.LocalBinder).getService()
@@ -227,147 +194,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ─── Classic Scan (BroadcastReceiver) ────────────────────────────────────
-    @Suppress("UnusedPrivateMember")
-    private val classicScanReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
 
-                    device ?: return
-                    Log.d(
-                        "CLASSIC_SCAN",
-                        "Found: ${device.name} | ${device.address} | type=${device.type}"
-                    )
-
-                    val type = device.type
-
-                    if (!isProbablyClassicCapable(device)) {
-                        return
-                    }
-
-                    val address = device.address
-                    val name = try {
-                        if (
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-                            != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            "Unknown"
-                        } else {
-                            device.name ?: "Unknown"
-                        }
-                    } catch (_: SecurityException) {
-                        "Unknown"
-                    }
-
-                    val existingIndex =
-                        classicDeviceList.indexOfFirst { it.address == address }
-
-                    if (existingIndex != -1) {
-
-                        val existing = classicDeviceList[existingIndex]
-
-                        val improvedName =
-                            existing.name == "Unknown" && name != "Unknown"
-
-                        val improvedType =
-                            existing.type == BluetoothDevice.DEVICE_TYPE_UNKNOWN &&
-                                    type != BluetoothDevice.DEVICE_TYPE_UNKNOWN
-
-                        if (improvedName || improvedType) {
-
-                            classicDeviceList[existingIndex] =
-                                existing.copy(
-                                    name = if (improvedName) name else existing.name,
-                                    type = if (improvedType) type else existing.type
-                                )
-
-                            classicDeviceMap[address] = device
-
-                            runOnUiThread {
-                                classicAdapter.notifyDataSetChanged()
-                            }
-                        }
-
-                    } else {
-
-                        classicDeviceMap[address] = device
-
-                        classicDeviceList.add(
-                            ClassicDeviceItem(name, address, type)
-                        )
-
-                        runOnUiThread {
-                            classicAdapter.notifyDataSetChanged()
-                        }
-                    }
-                }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-
-                    runOnUiThread { Toast.makeText(this@MainActivity, "Classic scan done", Toast.LENGTH_SHORT).show()}
-                    Log.d(
-                        "CLASSIC_SCAN",
-                        "Final classic device count = ${classicDeviceList.size}"
-                    )
-
-
-                }
-                BluetoothDevice.ACTION_PAIRING_REQUEST -> {
-                    val device: BluetoothDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                        else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-
-                    val variant = intent.getIntExtra(
-                        BluetoothDevice.EXTRA_PAIRING_VARIANT,
-                        BluetoothDevice.ERROR
-                    )
-                    val pairingType = when (variant) {
-                        BluetoothDevice.PAIRING_VARIANT_PIN          -> "Enter PIN"
-                        BluetoothDevice.PAIRING_VARIANT_PASSKEY_CONFIRMATION -> "Confirm passkey"
-                        6 /* PAIRING_VARIANT_CONSENT */              -> "Confirm pairing"
-                        else                                         -> "Pairing"
-                    }
-                    runOnUiThread {
-                        classicStatusText.text =
-                            getString(R.string.with, pairingType, device?.address ?: "device")
-                    }
-                }
-
-                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                    val bondState = intent.getIntExtra(
-                        BluetoothDevice.EXTRA_BOND_STATE,
-                        BluetoothDevice.BOND_NONE
-                    )
-                    val device: BluetoothDevice? =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                        else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-
-                    val address = device?.address ?: return
-                    runOnUiThread {
-                        when (bondState) {
-                            BluetoothDevice.BOND_BONDED -> {
-                                // Refresh list entry — it might now show a real name
-                                val idx = classicDeviceList.indexOfFirst { it.address == address }
-                                if (idx != -1) {
-                                    val name = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }
-                                    classicDeviceList[idx] = classicDeviceList[idx].copy(name = name)
-                                    classicAdapter.notifyDataSetChanged()
-                                }
-                                classicStatusText.text = getString(R.string.paired_connecting)
-                            }
-                            BluetoothDevice.BOND_NONE ->
-                                classicStatusText.text = getString(R.string.pairing_failed)
-                        }
-                    }
-                }
-            }
-        }
-    }
 
 
 
@@ -1117,103 +944,12 @@ class MainActivity : AppCompatActivity() {
 
     // ─── BLE Scan ────────────────────────────────────────────────────────────
     private val scanner = BluetoothLeScannerCompat.getScanner()
-    private val scanCallback = object : ScanCallback() {
-
-        // 1. Handles Modern Phones (Processes whole batches smoothly)
-        override fun onBatchScanResults(results: MutableList<ScanResult>) {
-            var listUpdated = false
-
-            // Cache permission status once per batch to avoid checking it hundreds of times
-            val hasConnectPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-
-            for (result in results) {
-                val isChanged = processSingleResult(result, hasConnectPermission)
-                if (isChanged) listUpdated = true
-            }
-
-            // ONLY refresh the UI thread once per batch window (e.g., every 500ms)
-            if (listUpdated) {
-                runOnUiThread {
-                    deviceAdapter.notifyDataSetChanged()
-                }
-            }
-        }
-
-        // 2. Fallback for Older Phones
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val hasConnectPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-
-            val isChanged = processSingleResult(result, hasConnectPermission)
-            if (isChanged) {
-                runOnUiThread {
-                    deviceAdapter.notifyDataSetChanged()
-                }
-            }
-        }
-
-        // 3. Shared parsing logic - COMPLETELY background thread-safe
-        private fun processSingleResult(result: ScanResult, hasPermission: Boolean): Boolean {
-            val device = result.device
-            val address = device.address
-
-            // Safely determine name without crashing or overloading the CPU
-            val name = if (hasPermission) {
-                try { device.name ?: "Unknown" } catch (_: SecurityException) { "No Permission" }
-            } else {
-                "No Permission"
-            }
-
-            val newEntry = BleDeviceItem(
-                name = name,
-                address = address,
-                rssi = result.rssi
-            )
-
-            // OPTIMIZATION: Use your deviceMap to instantly check if a device exists (O(1) speed)
-            // instead of slow string searching (it.contains(address))
-            val isNewDevice = !deviceMap.containsKey(address)
-
-            deviceMap[address] = device
-
-            if (isNewDevice) {
-                Log.d(
-                    "BLE_SCAN",
-                    "ADDING DEVICE: $name $address"
-                )
-                deviceList.add(newEntry)
-                return true
-
-            } else {
-
-                val index = deviceList.indexOfFirst {
-                    it.address == address
-                }
-
-                if (index != -1) {
-
-                    val old = deviceList[index]
-
-                    if (old.rssi != result.rssi || old.name != name) {
-
-                        deviceList[index] = newEntry
-                        return true
-                    }
-                }
-            }
-
-            return false
-
-        }
-    }
-
+    private val scanCallback = BleScanCallback(
+        deviceList = deviceList,
+        deviceMap = deviceMap,
+        permissionChecker = { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED },
+        onListUpdated = { runOnUiThread { deviceAdapter.notifyDataSetChanged() } }
+    )
 
     private fun startBleScan() {
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
@@ -1347,77 +1083,4 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-// ─── Simple Adapter ──────────────────────────────────────────────────────────
-class DeviceAdapter(
-    private val devices: List<BleDeviceItem>,
-    private val deviceMap: Map<String, BluetoothDevice>,
-    private val onStopScanRequested: () -> Unit, // 🌟 Pass a function pointer to stop the scan
-    private val connectCallback: (BluetoothDevice) -> Unit
-) : BaseAdapter() {
-
-    override fun getCount() = devices.size
-    override fun getItem(p: Int) = devices[p]
-    override fun getItemId(p: Int) = p.toLong()
-
-    override fun getView(p: Int, v: View?, parent: ViewGroup): View {
-        val view = v ?: LayoutInflater.from(parent.context).inflate(R.layout.device_item, parent, false)
-        val item = devices[p]
-
-        view.findViewById<TextView>(R.id.deviceName).text = item.name
-        view.findViewById<TextView>(R.id.deviceAddress).text = item.address
-        view.findViewById<TextView>(R.id.deviceSignal).text =
-            view.context.getString(R.string.rssi, item.rssi)
-
-        view.findViewById< MaterialButton>(R.id.connectBtn).apply {
-            isEnabled = false       // ADD THIS
-            alpha = 0.4f            // ADD THIS
-            isAllCaps = false
-
-            val addressLine = item.address
-
-            setOnClickListener {
-                // STEP 1: Instantly stop the scanner to preserve main thread performance
-                onStopScanRequested()
-
-                // STEP 2: Hand off the device directly to your activity to run connectToDevice()
-                if (addressLine.isNotEmpty()) {
-                    deviceMap[addressLine]?.let { bluetoothDevice ->
-                        connectCallback(bluetoothDevice)
-                    } ?: run {
-                        Toast.makeText(context, "Device data mismatch. Try refreshing.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-
-
-        return view
-    }
-}
-class ClassicDeviceAdapter(
-    private val devices: List<ClassicDeviceItem>,
-    private val deviceMap: Map<String, BluetoothDevice>,
-    private val connectCallback: (BluetoothDevice) -> Unit
-) : BaseAdapter() {
-    override fun getCount() = devices.size
-    override fun getItem(p: Int) = devices[p]
-    override fun getItemId(p: Int) = p.toLong()
-    override fun getView(p: Int, v: View?, parent: ViewGroup): View {
-        val view = v ?: LayoutInflater.from(parent.context).inflate(R.layout.device_item, parent, false)
-        val item = devices[p]
-        view.findViewById<TextView>(R.id.deviceName).text = item.name
-        view.findViewById<TextView>(R.id.deviceAddress).text = item.address
-        view.findViewById<TextView>(R.id.deviceSignal).text =
-            if (item.type == BluetoothDevice.DEVICE_TYPE_DUAL) "Dual (Classic+BLE)" else "Classic"
-        view.findViewById<Button>(R.id.connectBtn).apply {
-
-            isAllCaps = false
-            setOnClickListener {
-                deviceMap[item.address]?.let { connectCallback(it) }
-                    ?: Toast.makeText(context, "Device not found, try rescanning", Toast.LENGTH_SHORT).show()
-            }
-        }
-        return view
-    }
-}
 
