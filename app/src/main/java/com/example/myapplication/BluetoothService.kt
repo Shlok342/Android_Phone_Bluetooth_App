@@ -790,7 +790,7 @@ class BluetoothService : Service() {
         )
 
         try {
-
+        
             bluetoothGatt = device.connectGatt(
                 this,
                 false,

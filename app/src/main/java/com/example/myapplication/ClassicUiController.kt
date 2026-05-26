@@ -7,7 +7,6 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-
 class ClassicUiController (
     private val activity: AppCompatActivity,
     private val classicStatusText: TextView,
@@ -34,7 +33,7 @@ class ClassicUiController (
             ClassicState.CONNECTING -> "Classic: Connecting to $name..."
             ClassicState.CONNECTED -> "🟢 Classic: Connected to $name ($address)"
             ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
-            is ClassicState.RECONNECTING -> "🔄 Classic: Reconnecting… (${state.attempt}/5)"
+            is ClassicState.RECONNECTING -> "🔄 Classic: Reconnecting… (${state.attempt}/${ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS}"
             is ClassicState.FAILED -> {
                 when (state.reason) {
                     FailureReason.Timeout -> "⏱ Classic: Timed out"

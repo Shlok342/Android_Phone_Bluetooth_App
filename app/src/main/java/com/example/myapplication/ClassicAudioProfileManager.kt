@@ -80,7 +80,7 @@ class ClassicAudioProfileManager(
     private fun resolveCodec(device: BluetoothDevice): String {
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            return "SBC"
+            return "SBC"   
         }
 
         return try {
