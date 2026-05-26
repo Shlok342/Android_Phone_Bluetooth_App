@@ -22,12 +22,15 @@ class BleScanCallback(
     }
 
     override fun onScanResult(callbackType: Int, result: ScanResult) {
+        Log.d("BLE_SCAN", "RAW RESULT RECEIVED")
 
         val hasConnectPermission = permissionChecker()
 
         processSingleResult(result, hasConnectPermission)
     }
-
+    override fun onScanFailed(errorCode: Int) {
+        Log.e("BLE_SCAN", "Scan failed with error: $errorCode")
+    }
     private fun processSingleResult(
         result: ScanResult,
         hasPermission: Boolean
@@ -52,8 +55,8 @@ class BleScanCallback(
         )
 
         Log.d(
-+            "BLE_SCAN",
-+            "DEVICE FOUND: $name (${device.address}")
+         "BLE_SCAN",
+            "DEVICE FOUND: $name (${device.address}")
 
         onDeviceFound(newEntry, device)
     }

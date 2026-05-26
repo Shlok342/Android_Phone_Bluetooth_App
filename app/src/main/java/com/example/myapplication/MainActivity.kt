@@ -4,6 +4,7 @@ import android.Manifest
 import android.bluetooth.*
 import android.content.*
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -20,6 +21,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.widget.Toast.makeText
 
 import kotlinx.coroutines.delay
 
@@ -28,7 +33,7 @@ class MainActivity : AppCompatActivity() {
     // ─── UI State ─────────────────────────────────────────────────────────────
     private lateinit var ui: UiComponents
     private var isScanning = false
-    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val uiHandler = Handler(Looper.getMainLooper())
     private var pendingRefresh = false
     private var delayedStatusRunnable: Runnable? = null
     
@@ -50,13 +55,13 @@ class MainActivity : AppCompatActivity() {
     ) { uri: Uri? ->
         uri ?: return@registerForActivityResult
         val svc = classicService ?: run {
-            Toast.makeText(this, "Classic service not ready", Toast.LENGTH_SHORT).show()
+            makeText(this, "Classic service not ready", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
         if (svc.connectionManager.isConnected()) {
             svc.fileTransferManager.sendFile(uri)
         } else {
-            Toast.makeText(this, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
+            makeText(this, "Not connected to a Classic device", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -71,7 +76,12 @@ class MainActivity : AppCompatActivity() {
     private val classicScanReceiver = ClassicScanReceiver(
         classicDeviceList = classicDeviceList,
         classicDeviceMap = classicDeviceMap,
-        permissionChecker = { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED },
+        permissionChecker = { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            TODO("VERSION.SDK_INT < S")
+        }
+        },
         onDeviceListChanged = { runOnUiThread { ui.classicAdapter.notifyDataSetChanged() } },
         onStatusUpdate = { msg -> runOnUiThread { ui.classicStatusText.text = msg } }
     )
@@ -245,7 +255,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkPermissionsAndStartService() {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.POST_NOTIFICATIONS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                TODO("VERSION.SDK_INT < TIRAMISU")
+            }
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }
@@ -254,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         if (missing.isEmpty()) {
             startBluetoothService()
             startClassicBluetoothService()
-            startBleScan()
+
         } else {
             requestPermissionsLauncher.launch(missing.toTypedArray())
         }
@@ -289,14 +303,14 @@ class MainActivity : AppCompatActivity() {
         if (bluetoothGranted) {
             startBluetoothService()
             startClassicBluetoothService()
-            startBleScan()
+
         } else {
-            Toast.makeText(this, "Bluetooth permissions required to scan.", Toast.LENGTH_SHORT).show()
+            makeText(this, "Bluetooth permissions required to scan.", Toast.LENGTH_SHORT).show()
         }
         // Notification permission denial is silently ignored — non-critical
     }
     // ─── Scanning ────────────────────────────────────────────────────────────
-    private val scanner = BluetoothLeScannerCompat.getScanner()
+    val scanner = BluetoothLeScannerCompat.getScanner()
     private val scanCallback = BleScanCallback(
 
         onDeviceFound = { item, device ->
@@ -336,16 +350,37 @@ class MainActivity : AppCompatActivity() {
 
 
         permissionChecker = {
-            checkSelfPermission(
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                checkSelfPermission(
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                TODO("VERSION.SDK_INT < S")
+            }
         }
     )
 
+
+
     private fun startBleScan() {
+        val locationManager =
+            getSystemService(LOCATION_SERVICE) as LocationManager
+
+        val isLocationEnabled =
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                    locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+        if (!isLocationEnabled) {
+            makeText(
+                this,
+                "Turn on Location for BLE scanning",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         if (!bluetoothManager.adapter.isEnabled) {
-            Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
+            makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
             return
         }
         stopBleScan()
@@ -355,10 +390,14 @@ class MainActivity : AppCompatActivity() {
         
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         try {
-            scanner.startScan(null, settings, scanCallback)
+            Log.d("BLE_SCAN", "STARTING SCAN")
+            scanner.startScan(null,settings,scanCallback)
             isScanning = true
-            Toast.makeText(this, "Scanning BLE...", Toast.LENGTH_SHORT).show()
-        } catch (_: SecurityException) {}
+            makeText(this, "Scanning BLE...", Toast.LENGTH_SHORT).show()
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+            makeText(this, "BLE scan permission denied", Toast.LENGTH_LONG).show()
+        }
     }
 
     fun stopBleScan() {
@@ -371,7 +410,7 @@ class MainActivity : AppCompatActivity() {
     private fun startClassicScan() {
         val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         if (!adapter.isEnabled) {
-            Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
+            makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -408,7 +447,7 @@ class MainActivity : AppCompatActivity() {
 
                 try {
                     adapter.startDiscovery()
-                    Toast.makeText(
+                    makeText(
                         this@MainActivity,
                         "Classic scan started",
                         Toast.LENGTH_SHORT
@@ -426,7 +465,9 @@ class MainActivity : AppCompatActivity() {
         if (!isBound) return
         stopBleScan()
         ui.statusText.text = getString(R.string.button_has_been_clicked)
-        ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        }
         bluetoothService?.connect(device)
     }
 
@@ -445,5 +486,4 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         if (!isBound) startBluetoothService()
         if (!isClassicBound) startClassicBluetoothService()
-    }
-}
+    }}
