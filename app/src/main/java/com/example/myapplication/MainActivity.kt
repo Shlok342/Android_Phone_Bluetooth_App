@@ -276,14 +276,24 @@ class MainActivity : AppCompatActivity() {
         bindService(intent, classicConnection, BIND_AUTO_CREATE)
     }
 
-    private val requestPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-        if (permissions.values.all { it }) {
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions[Manifest.permission.BLUETOOTH_SCAN] == true &&
+                    permissions[Manifest.permission.BLUETOOTH_CONNECT] == true
+        } else {
+            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        }
+
+        if (bluetoothGranted) {
             startBluetoothService()
             startClassicBluetoothService()
             startBleScan()
         } else {
-            Toast.makeText(this, "Permissions denied. Cannot scan.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Bluetooth permissions required to scan.", Toast.LENGTH_SHORT).show()
         }
+        // Notification permission denial is silently ignored — non-critical
     }
     // ─── Scanning ────────────────────────────────────────────────────────────
     private val scanner = BluetoothLeScannerCompat.getScanner()
