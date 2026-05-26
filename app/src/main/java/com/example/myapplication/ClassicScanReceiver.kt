@@ -187,7 +187,7 @@ class ClassicScanReceiver(
                                 if (idx != -1) {
                                     val name = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }
                                     classicDeviceList[idx] = classicDeviceList[idx].copy(name = name)
-                                    onDeviceListChanged
+                                    onDeviceListChanged()
                                 }
                                 onStatusUpdate(context.getString(R.string.paired_connecting))
                             }

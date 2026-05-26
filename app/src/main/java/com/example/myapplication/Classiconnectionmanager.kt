@@ -2,6 +2,7 @@ package com.example.myapplication
 import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
@@ -87,6 +88,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     private var bluetoothSocket: BluetoothSocket? = null
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
+
     // ─── Parser / Write Queue ──────────────────────────────
     private val parser: MessageParser = NewlineMessageParser()
     private var writeQueue: WriteQueue? = null
@@ -173,6 +175,10 @@ class ClassicConnectionManager(private val appContext: Context) {
                     return@launch
                 }
                 cancelDiscoveryIfActive()
+                delay(500)
+                if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                    delay(1200)
+                }
                 val socket = createSocket(device)
                 bluetoothSocket = socket
                 inputStream  = socket.inputStream
@@ -194,27 +200,49 @@ class ClassicConnectionManager(private val appContext: Context) {
             message
         )
     }
-    private fun createSocket(
-        device: BluetoothDevice
-    ): BluetoothSocket {
+    private fun createSocket(device: BluetoothDevice): BluetoothSocket {
 
-        return try {
+        try {
+            log("Trying insecure RFCOMM...")
 
-            val socket =
+            val insecureSocket =
+                device.createInsecureRfcommSocketToServiceRecord(sppUUID)
+
+            insecureSocket.connect()
+
+            log("Insecure RFCOMM success")
+
+            return insecureSocket
+
+        } catch (e: IOException) {
+
+            log("Insecure RFCOMM failed: ${e.message}")
+        }
+
+        try {
+            log("Trying secure RFCOMM...")
+
+            val secureSocket =
                 device.createRfcommSocketToServiceRecord(sppUUID)
 
-            socket.connect()
+            secureSocket.connect()
 
-            socket
+            log("Secure RFCOMM success")
 
-        } catch (primaryError: IOException) {
-            log("Primary socket failed: ${primaryError.message}")
-            try { device.createRfcommSocketToServiceRecord(sppUUID).close() }
-            catch (_: IOException) {}                    // ← close the leaked socket
-            val fallbackSocket = createFallbackSocket(device)
-            fallbackSocket.connect()
-            fallbackSocket
+            return secureSocket
+
+        } catch (e: IOException) {
+
+            log("Secure RFCOMM failed: ${e.message}")
         }
+
+        log("Trying reflection fallback...")
+
+        val fallbackSocket = createFallbackSocket(device)
+
+        fallbackSocket.connect()
+
+        return fallbackSocket
     }
 
     private fun createFallbackSocket(
@@ -260,9 +288,10 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun startConnectionTimeout() {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = managerScope.launch {
-            logEvent("Connection timed out after ${CONNECTION_TIMEOUT_MS}ms")
+
 
             delay(CONNECTION_TIMEOUT_MS)
+            logEvent("Connection timed out after ${CONNECTION_TIMEOUT_MS}ms")
             if (_state.value == ClassicState.CONNECTING) {
                 disconnectInternal()        // clean up silently
                 handleConnectionFailure()   // schedules reconnect; only reaches FAILED when attempts exhausted
