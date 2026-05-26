@@ -361,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         } catch (_: SecurityException) {}
     }
 
-    private fun stopBleScan() {
+    fun stopBleScan() {
         try {
             scanner.stopScan(scanCallback)
             isScanning = false

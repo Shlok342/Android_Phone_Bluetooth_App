@@ -264,7 +264,6 @@ object MainUiFactory {
         val deviceAdapter = DeviceAdapter(
             devices = bleDeviceList,
             deviceMap = bleDeviceMap,
-            onStopScanRequested = { onStopScan() },
             connectCallback = { device -> connectBleCallback(device) }
         )
         listView.adapter = deviceAdapter
