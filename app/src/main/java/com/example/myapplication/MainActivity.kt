@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private val bleDeviceMap = mutableMapOf<String, BluetoothDevice>()
     private val classicDeviceList = mutableListOf<ClassicDeviceItem>()
     private val classicDeviceMap = mutableMapOf<String, BluetoothDevice>()
+
     private lateinit var classicUiController: ClassicUiController
     private var activeTab = ActiveTab.BLE
     private var serviceStarted = false
@@ -204,7 +205,10 @@ class MainActivity : AppCompatActivity() {
                 if (activeTab == ActiveTab.BLE) bluetoothService?.disconnect()
                 else classicService?.connectionManager?.disconnect()
             },
-            onTabBle = { activeTab = ActiveTab.BLE },
+            onTabBle = { activeTab = ActiveTab.BLE
+                        stopClassicScan()
+                        if (!isScanning) startBleScan()
+            },
             onTabClassic = {
                 activeTab = ActiveTab.CLASSIC
                 stopBleScan()
@@ -383,6 +387,7 @@ class MainActivity : AppCompatActivity() {
             makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
             return
         }
+        ClassicConnectionManager.cancelDiscovery(this)
         stopBleScan()
         bleDeviceList.clear()
         bleDeviceMap.clear()

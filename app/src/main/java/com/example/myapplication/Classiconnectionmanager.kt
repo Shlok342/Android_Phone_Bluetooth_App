@@ -1,8 +1,8 @@
 package com.example.myapplication
 import android.Manifest
+
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
@@ -33,6 +33,18 @@ class ClassicConnectionManager(private val appContext: Context) {
         private const val WRITE_TIMEOUT_MS         =  5_000L
         const val RECONNECT_MAX_ATTEMPTS   =  3
         private const val FAILURE_COOLDOWN_MS      = 60_000L
+
+        fun cancelDiscovery(context: Context) {
+            try {
+                val mgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
+                val adapter = mgr.adapter ?: return
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN)
+                    == PackageManager.PERMISSION_GRANTED) {
+                    if (adapter.isDiscovering) adapter.cancelDiscovery()
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     // ─── State ─────────────────────────────────────────────
@@ -174,10 +186,17 @@ class ClassicConnectionManager(private val appContext: Context) {
                     updateState(ClassicState.FAILED(FailureReason.PermissionDenied))
                     return@launch
                 }
-                cancelDiscoveryIfActive()
+                cancelDiscovery(appContext)
                 delay(500)
-                if (device.bondState == BluetoothDevice.BOND_BONDED) {
-                    delay(1200)
+
+                try {
+                    if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                        delay(1200)
+                    }
+                } catch (e: SecurityException) {
+                    // Permission was denied or missing.
+                    // Log the error or gracefully degrade the feature.
+                    e.printStackTrace()
                 }
                 val socket = createSocket(device)
                 bluetoothSocket = socket
@@ -413,7 +432,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     fun disconnect() {
         isIntentionalDisconnect = true
         cancelReconnect()
-        cancelDiscoveryIfActive()
+        cancelDiscovery(appContext)
         forceDisconnect()
     }
 
@@ -454,18 +473,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun cancelDiscoveryIfActive() {
-        try {
-            val adapter = (appContext.getSystemService(Context.BLUETOOTH_SERVICE)
-                    as BluetoothManager).adapter
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                ContextCompat.checkSelfPermission(
-                    appContext, Manifest.permission.BLUETOOTH_SCAN
-                ) == PackageManager.PERMISSION_GRANTED) {
-                if (adapter.isDiscovering) adapter.cancelDiscovery()
-            }
-        } catch (_: SecurityException) {}
-    }
+
 
     private fun resolveAddress(device: BluetoothDevice): String = device.address
 
