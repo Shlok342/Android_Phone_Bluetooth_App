@@ -14,7 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import no.nordicsemi.android.support.v18.scanner.*
 import kotlinx.coroutines.Job
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -25,7 +24,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast.makeText
-
+import android.bluetooth.le.ScanSettings
 import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() {
@@ -73,6 +72,16 @@ class MainActivity : AppCompatActivity() {
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
+    private var lastScanStartTime = 0L
+    private val scancooldownms= 10000L
+    private val scandurationms= 15_000L
+
+    private val scanHandler = Handler(Looper.getMainLooper())
+
+    private val scanTimeoutRunnable = Runnable {
+        Log.d("BLE_SCAN", "AUTO STOPPING SCAN")
+        stopBleScan()
+    }
 
     private val classicScanReceiver = ClassicScanReceiver(
         classicDeviceList = classicDeviceList,
@@ -91,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             bluetoothService = (binder as BluetoothService.LocalBinder).getService()
             isBound = true
-            if (!isScanning) startBleScan()
+
             
             bluetoothService?.onStateChanged = { state, address ->
                 runOnUiThread { bleUiController.updateStatusUi(state, address) }
@@ -314,7 +323,13 @@ class MainActivity : AppCompatActivity() {
         // Notification permission denial is silently ignored — non-critical
     }
     // ─── Scanning ────────────────────────────────────────────────────────────
-    val scanner = BluetoothLeScannerCompat.getScanner()
+    private val bluetoothAdapter by lazy {
+        (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+    }
+
+    private val scanner by lazy {
+        bluetoothAdapter.bluetoothLeScanner
+    }
     private val scanCallback = BleScanCallback(
 
         onDeviceFound = { item, device ->
@@ -367,6 +382,21 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun startBleScan() {
+
+        val now = System.currentTimeMillis()
+
+        // Prevent Android BLE throttling
+        if (now - lastScanStartTime < scancooldownms) {
+            Log.d("BLE_SCAN", "Scan blocked by cooldown")
+            return
+        }
+
+        // Prevent duplicate scans
+        if (isScanning) {
+            Log.d("BLE_SCAN", "Already scanning")
+            return
+        }
+
         val locationManager =
             getSystemService(LOCATION_SERVICE) as LocationManager
 
@@ -382,34 +412,80 @@ class MainActivity : AppCompatActivity() {
             ).show()
             return
         }
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+
+        val bluetoothManager =
+            getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+
         if (!bluetoothManager.adapter.isEnabled) {
             makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
             return
         }
+
+        // Stop classic discovery before BLE scan
         ClassicConnectionManager.cancelDiscovery(this)
+
+        // Safety cleanup
         stopBleScan()
+
         bleDeviceList.clear()
         bleDeviceMap.clear()
-        runOnUiThread { ui.deviceAdapter.notifyDataSetChanged() }
-        
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+
+        runOnUiThread {
+            ui.deviceAdapter.notifyDataSetChanged()
+        }
+
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
         try {
-            Log.d("BLE_SCAN", "STARTING SCAN")
-            scanner.startScan(null,settings,scanCallback)
+
+            Log.d("BLE_SCAN", "STARTING SCAN SESSION")
+
+            scanner.startScan(scanCallback)
+
             isScanning = true
+            lastScanStartTime = now
+
             makeText(this, "Scanning BLE...", Toast.LENGTH_SHORT).show()
+
+            // Auto-stop scan after 15 seconds
+            scanHandler.removeCallbacks(scanTimeoutRunnable)
+
+            scanHandler.postDelayed(
+                scanTimeoutRunnable,
+                scandurationms
+            )
+
         } catch (e: SecurityException) {
+
             e.printStackTrace()
-            makeText(this, "BLE scan permission denied", Toast.LENGTH_LONG).show()
+
+            makeText(
+                this,
+                "BLE scan permission denied",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
     fun stopBleScan() {
+
+        if (!isScanning) return
+
         try {
+
             scanner.stopScan(scanCallback)
+
+            scanHandler.removeCallbacks(scanTimeoutRunnable)
+
             isScanning = false
-        } catch (_: SecurityException) {}
+
+            Log.d("BLE_SCAN", "SCAN STOPPED")
+
+        } catch (_: SecurityException) {
+
+        }
     }
 
     private fun startClassicScan() {

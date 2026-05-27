@@ -1,15 +1,13 @@
 package com.example.myapplication
 import android.bluetooth.BluetoothDevice
 import android.util.Log
-import no.nordicsemi.android.support.v18.scanner.ScanCallback
-import no.nordicsemi.android.support.v18.scanner.ScanResult
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
 
 
 class BleScanCallback(
-
     private val onDeviceFound: (BleDeviceItem, BluetoothDevice) -> Unit,
     private val permissionChecker: () -> Boolean
-
 ) : ScanCallback() {
 
     override fun onBatchScanResults(results: MutableList<ScanResult>) {
@@ -29,7 +27,30 @@ class BleScanCallback(
         processSingleResult(result, hasConnectPermission)
     }
     override fun onScanFailed(errorCode: Int) {
-        Log.e("BLE_SCAN", "Scan failed with error: $errorCode")
+        val reason = when (errorCode) {
+            SCAN_FAILED_ALREADY_STARTED ->
+                "SCAN_FAILED_ALREADY_STARTED"
+
+            SCAN_FAILED_APPLICATION_REGISTRATION_FAILED ->
+                "SCAN_FAILED_APPLICATION_REGISTRATION_FAILED"
+
+            SCAN_FAILED_FEATURE_UNSUPPORTED ->
+                "SCAN_FAILED_FEATURE_UNSUPPORTED"
+
+            SCAN_FAILED_INTERNAL_ERROR ->
+                "SCAN_FAILED_INTERNAL_ERROR"
+
+            SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES ->
+                "SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES"
+
+            SCAN_FAILED_SCANNING_TOO_FREQUENTLY ->
+                "SCAN_FAILED_SCANNING_TOO_FREQUENTLY"
+
+            else ->
+                "UNKNOWN_ERROR"
+        }
+
+        Log.e("BLE_SCAN", "Scan failed: $reason")
     }
     private fun processSingleResult(
         result: ScanResult,
@@ -56,7 +77,7 @@ class BleScanCallback(
 
         Log.d(
          "BLE_SCAN",
-            "DEVICE FOUND: $name (${device.address}")
+            "DEVICE FOUND: $name ${device.address}")
 
         onDeviceFound(newEntry, device)
     }
