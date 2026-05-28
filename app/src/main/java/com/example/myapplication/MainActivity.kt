@@ -421,11 +421,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Stop classic discovery before BLE scan
-        ClassicConnectionManager.cancelDiscovery(this)
-
-        // Safety cleanup
+        // Stop any ongoing scans before starting a new one
         stopBleScan()
+        stopClassicScan()
 
         bleDeviceList.clear()
         bleDeviceMap.clear()
@@ -442,7 +440,7 @@ class MainActivity : AppCompatActivity() {
 
             Log.d("BLE_SCAN", "STARTING SCAN SESSION")
 
-            scanner.startScan(scanCallback)
+            scanner.startScan(null, settings, scanCallback)
 
             isScanning = true
             lastScanStartTime = now
@@ -458,14 +456,8 @@ class MainActivity : AppCompatActivity() {
             )
 
         } catch (e: SecurityException) {
-
             e.printStackTrace()
-
-            makeText(
-                this,
-                "BLE scan permission denied",
-                Toast.LENGTH_LONG
-            ).show()
+            makeText(this, "BLE scan permission denied", Toast.LENGTH_LONG).show()
         }
     }
 

@@ -56,17 +56,17 @@ class BleScanCallback(
         result: ScanResult,
         hasPermission: Boolean
     ) {
-
         val device = result.device
-
+        
+        // On Android 12+, we need BLUETOOTH_CONNECT to get the device name
         val name = if (hasPermission) {
             try {
                 device.name ?: "Unknown"
             } catch (_: SecurityException) {
-                "No Permission"
+                "Unknown (Permission Denied)"
             }
         } else {
-            "No Permission"
+            "Unknown (No Permission)"
         }
 
         val newEntry = BleDeviceItem(
