@@ -48,4 +48,8 @@
     <string name="hint_for_rename_option">AirPods Pro</string>
     <string name="rename_device">Rename Device</string>
     <string name="give_your_device_a_cleaner_custom_name">Give your device a cleaner custom name</string>
+    <string name="procedural_insights_button">Procedural Insights 🕐</string>
+    <string name="procedural_insights_title">Procedural Insights</string>
+    <string name="events_are_null">No events recorded yet.</string>
+    <string name="clear_in_procedural_insights">Clear</string>
 </resources>

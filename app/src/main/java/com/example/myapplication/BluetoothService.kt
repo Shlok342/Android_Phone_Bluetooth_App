@@ -121,9 +121,16 @@ class BluetoothService : Service() {
                 }
                 
                 if (device?.address != connectedDeviceAddress) return
-                
+
                 val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
                 when (bondState) {
+                    BluetoothDevice.BOND_BONDING -> {
+                        // Pairing dialog is now showing — keep state as BONDING, reset timeout
+                        if (currentState == BleState.BONDING) {
+                            cancelTimeout()
+                            startTimeout("Bonding timed out", 30000L)
+                        }
+                    }
                     BluetoothDevice.BOND_BONDED -> {
                         if (currentState == BleState.BONDING) {
                             cancelTimeout()
@@ -207,23 +214,54 @@ class BluetoothService : Service() {
 
                     connectedDeviceAddress = address
 
-                    currentState = BleState.DISCOVERING_SERVICES
+                    val bondState = try {
+                        gatt.device.bondState
+                    } catch (_: SecurityException) {
+                        BluetoothDevice.BOND_BONDED
+                    }
 
-                    updateNotification("Connected. Discovering services...")
-
-                    startTimeout("Service discovery timed out")
-
-                    Handler(Looper.getMainLooper()).postDelayed({
-
-                        try {
-                            gatt.discoverServices()
-                        } catch (_: SecurityException) {
-
-                            currentState = BleState.FAILED
-                            updateNotification("Failed discovering services")
+                    when (bondState) {
+                        BluetoothDevice.BOND_NONE -> {
+                            currentState = BleState.BONDING
+                            updateNotification("Waiting for pairing...")
+                            startTimeout("Bonding timed out", 30000L)
+                            // Explicitly trigger the system pairing dialog
+                            try {
+                                val initiated = gatt.device.createBond()
+                                if (!initiated) {
+                                    // createBond() returns false if bonding is already in progress
+                                    // or was already initiated by the device — that's fine, just wait
+                                    updateNotification("Pairing in progress...")
+                                }
+                            } catch (_: SecurityException) {
+                                currentState = BleState.FAILED
+                                updateNotification("Permission error during bonding")
+                            }
                         }
 
-                    }, 500)
+                        BluetoothDevice.BOND_BONDING -> {
+                            // Pairing already in progress (e.g. initiated by the device)
+                            currentState = BleState.BONDING
+                            updateNotification("Bonding in progress...")
+                            startTimeout("Bonding timed out", 3000)
+                        }
+
+                        else -> {
+                            // Already bonded — proceed directly to service discovery
+                            currentState = BleState.DISCOVERING_SERVICES
+                            updateNotification("Connected. Discovering services...")
+                            startTimeout("Service discovery timed out")
+
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                try {
+                                    gatt.discoverServices()
+                                } catch (_: SecurityException) {
+                                    currentState = BleState.FAILED
+                                    updateNotification("Failed discovering services")
+                                }
+                            }, 500)
+                        }
+                    }
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {

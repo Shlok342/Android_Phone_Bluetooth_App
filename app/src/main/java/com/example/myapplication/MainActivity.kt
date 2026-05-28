@@ -108,7 +108,17 @@ class MainActivity : AppCompatActivity() {
             }, 200)
 
             bluetoothService?.onStateChanged = { state, address ->
-                runOnUiThread { bleUiController.updateStatusUi(state, address) }
+                runOnUiThread {
+                    bleUiController.updateStatusUi(state, address)
+                    when (state) {
+                        BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${bluetoothService?.connectedDeviceName ?: address}")
+                        BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${bluetoothService?.connectedDeviceName ?: address}")
+                        BleState.DISCONNECTED  -> SystemTimeline.log("🔇 BLE disconnected")
+                        BleState.FAILED        -> SystemTimeline.log("❌ BLE connection failed")
+                        BleState.BONDING       -> SystemTimeline.log("🔐 BLE bonding...")
+                        else -> {}
+                    }
+                }
             }
 
             bluetoothService?.onDataReceived = { data ->
@@ -136,6 +146,14 @@ class MainActivity : AppCompatActivity() {
                     launch {
                         manager.connectionInfo.collect { info ->
                             classicUiController.updateClassicStatusUi(info.state, info.address)
+                            when (val s = info.state) {
+                                ClassicState.CONNECTING   -> SystemTimeline.log("🔄 Classic connecting to ${info.deviceName.ifBlank { info.address }}")
+                                ClassicState.CONNECTED    -> SystemTimeline.log("🟢 Classic connected: ${info.deviceName}")
+                                ClassicState.DISCONNECTED -> SystemTimeline.log("🔇 Classic disconnected")
+                                is ClassicState.RECONNECTING -> SystemTimeline.log("🔄 Classic reconnecting (${s.attempt}/${ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS})")
+                                is ClassicState.FAILED    -> SystemTimeline.log("❌ Classic failed: ${s.reason}")
+                                else -> {}
+                            }
                         }
                     }
                     launch {
@@ -218,25 +236,35 @@ class MainActivity : AppCompatActivity() {
             classicDeviceMap = classicDeviceMap,
             onRefresh = {
                 if (activeTab == ActiveTab.BLE) {
+                    SystemTimeline.log("🔄 BLE refresh triggered")
                     pendingRefresh = true
                     stopBleScan()
                     bluetoothService?.disconnect()
                 } else {
+                    SystemTimeline.log("🔄 Classic refresh triggered")
                     stopClassicScan()
                     this.startClassicScan()
                 }
             },
             onStopScan = { if (activeTab == ActiveTab.BLE) stopBleScan() else stopClassicScan() },
             onDisconnect = {
-                if (activeTab == ActiveTab.BLE) bluetoothService?.disconnect()
-                else classicService?.connectionManager?.disconnect()
+                if (activeTab == ActiveTab.BLE) {
+                    SystemTimeline.log("⏏ BLE disconnect requested")
+                    bluetoothService?.disconnect()
+                } else {
+                    SystemTimeline.log("⏏ Classic disconnect requested")
+                    classicService?.connectionManager?.disconnect()
+                }
             },
-            onTabBle = { activeTab = ActiveTab.BLE
-                        stopClassicScan()
-                        if (!isScanning) startBleScan()
+            onTabBle = {
+                activeTab = ActiveTab.BLE
+                SystemTimeline.log("📑 Switched to BLE tab")
+                stopClassicScan()
+                if (!isScanning) startBleScan()
             },
             onTabClassic = {
                 activeTab = ActiveTab.CLASSIC
+                SystemTimeline.log("📑 Switched to Classic tab")
                 stopBleScan()
                 this.startClassicScan()
             },
@@ -488,9 +516,8 @@ class MainActivity : AppCompatActivity() {
         try {
 
             scanner.stopScan(scanCallback)
-
+            SystemTimeline.log("⏹ BLE scan stopped")
             scanHandler.removeCallbacks(scanTimeoutRunnable)
-
             isScanning = false
 
             Log.d("BLE_SCAN", "SCAN STOPPED")
@@ -540,6 +567,7 @@ class MainActivity : AppCompatActivity() {
 
                 try {
                     adapter.startDiscovery()
+                    SystemTimeline.log("📡 Classic discovery started")
                     makeText(
                         this@MainActivity,
                         "Classic scan started",
@@ -557,6 +585,8 @@ class MainActivity : AppCompatActivity() {
     private fun connectToDevice(device: BluetoothDevice) {
         if (!isBound) return
         stopBleScan()
+        val name = try { device.name ?: device.address } catch (_: SecurityException) { device.address }
+        SystemTimeline.log("🔗 BLE connect attempt: $name")
         ui.statusText.text = getString(R.string.button_has_been_clicked)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
