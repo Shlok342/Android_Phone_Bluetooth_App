@@ -66,7 +66,7 @@
 
             android:id="@+id/connectBtn"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
 
             android:minHeight="0dp"
             android:minWidth="0dp"
@@ -88,6 +88,19 @@
             android:insetTop="0dp"
             android:insetBottom="0dp"
 
+            android:stateListAnimator="@null"/>
+        <!-- existing connectBtn above this -->
+
+        <ImageButton
+            android:id="@+id/editNameBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_edit_pen"
+            android:background="@drawable/bg_edit_pen"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/edit_device_name"
             android:stateListAnimator="@null"/>
     </LinearLayout>
 </LinearLayout>

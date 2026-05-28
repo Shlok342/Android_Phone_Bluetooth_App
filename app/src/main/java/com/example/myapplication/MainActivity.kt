@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private var isScanning = false
     private val uiHandler = Handler(Looper.getMainLooper())
     private var pendingRefresh = false
+    private var hasAudioEverConnected = false
     private var delayedStatusRunnable: Runnable? = null
     
     private val bleDeviceList = mutableListOf<BleDeviceItem>()
@@ -101,7 +102,11 @@ class MainActivity : AppCompatActivity() {
             bluetoothService = (binder as BluetoothService.LocalBinder).getService()
             isBound = true
 
-            
+            // Add a small delay to ensure the UI is fully stable before the first scan results arrive
+            uiHandler.postDelayed({
+                if (!isScanning && activeTab == ActiveTab.BLE) startBleScan()
+            }, 200)
+
             bluetoothService?.onStateChanged = { state, address ->
                 runOnUiThread { bleUiController.updateStatusUi(state, address) }
             }
@@ -162,8 +167,18 @@ class MainActivity : AppCompatActivity() {
                     }
                     launch {
                         service.audioProfileManager.connectionInfo.collect { info ->
+                            if (
+                                info.state == AudioProfileState.CONNECTED ||
+                                info.state == AudioProfileState.PLAYING
+                            ) {
+                                hasAudioEverConnected = true
+                            }
                             val msg = when (val state = info.state) {
-                                AudioProfileState.IDLE -> "Audio: Idle"
+                                AudioProfileState.IDLE ->
+                                    if (hasAudioEverConnected)
+                                        "Audio: Idle"
+                                    else
+                                        ""
                                 AudioProfileState.CONNECTING -> "🎧 Audio Connecting..."
                                 AudioProfileState.CONNECTED -> "🎧 Audio Connected: ${info.deviceName}"
                                 AudioProfileState.PLAYING -> "▶ Playing on ${info.deviceName}" + if (info.codecName.isNotEmpty()) " · ${info.codecName}" else ""
@@ -171,7 +186,9 @@ class MainActivity : AppCompatActivity() {
                                 is AudioProfileState.RECONNECTING -> "🔄 Audio Reconnecting (${state.attempt}/3)"
                                 is AudioProfileState.FAILED -> "❌ Audio Failed: ${state.reason}"
                             }
-                            bleUiController.showDataBottomSheet("[A2DP] $msg")
+                            if (msg.isNotBlank()) {
+                                bleUiController.showDataBottomSheet("[A2DP] $msg")
+                            }
                         }
                     }
                 }
@@ -230,6 +247,9 @@ class MainActivity : AppCompatActivity() {
 
         checkPermissionsAndStartService()
         
+        // Force an adapter sync right after UI creation to ensure visibility
+        uiHandler.post { ui.deviceAdapter.notifyDataSetChanged() }
+
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)

@@ -44,4 +44,8 @@
     <string name="send_file">Send File 📁</string>
     <string name="features_button_txt">Features ⚙️</string>
     <string name="classic_features">Classic Features</string>
+    <string name="edit_device_name">Edit device name</string>
+    <string name="hint_for_rename_option">AirPods Pro</string>
+    <string name="rename_device">Rename Device</string>
+    <string name="give_your_device_a_cleaner_custom_name">Give your device a cleaner custom name</string>
 </resources>
