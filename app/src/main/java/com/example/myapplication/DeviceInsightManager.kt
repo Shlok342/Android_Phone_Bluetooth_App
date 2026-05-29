@@ -1,5 +1,3 @@
-// FILE: app/src/main/java/com/example/myapplication/deviceinsights/manager/DeviceInsightManager.kt
-
 package com.example.myapplication
 
 import android.bluetooth.BluetoothClass
@@ -8,207 +6,79 @@ import android.bluetooth.BluetoothGatt
 import android.content.Context
 import android.media.AudioManager
 
-class DeviceInsightManager(
-    context: Context
-) {
+object DeviceInsightManager {
 
-    private val context =
-        context.applicationContext
-        private fun safeDeviceName(
-            device: BluetoothDevice
-        ): String {
+    private val sessions = mutableMapOf<String, DeviceInsightSession>()
+    private val appEvents = mutableListOf<DeviceEvent>()
 
-            return try {
+    fun onAppEvent(message: String) {
+        appEvents.add(DeviceEvent(System.currentTimeMillis(), message))
+        if (appEvents.size > 200) appEvents.removeAt(0)
+    }
 
-                if (
-                    BluetoothPermissionUtils
-                        .hasBluetoothConnectPermission(context)
-                ) {
-                    device.name ?: "Unknown Device"
-                } else {
-                    "Permission Denied"
-                }
+    fun getAppEvents(): List<DeviceEvent> = appEvents
 
-            } catch (_: SecurityException) {
+    fun onDeviceConnected(device: BluetoothDevice, transport: String, context: Context) {
+        val session = DeviceInsightSession(
+            deviceName = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Permission Denied" },
+            macAddress = device.address,
+            transportType = transport,
+            connectedAt = System.currentTimeMillis()
+        )
+        detectAudioCapabilities(device, session, context)
+        sessions[device.address] = session
+    }
 
-                "Security Exception"
-            }
-        }
-        private fun safeDeviceAddress(
-            device: BluetoothDevice
-        ): String {
-
-            return try {
-
-                if (
-                    BluetoothPermissionUtils
-                        .hasBluetoothConnectPermission(context)
-                ) {
-                    device.address
-                } else {
-                    "Unknown Address"
-                }
-
-            } catch (_: SecurityException) {
-
-                "Security Exception"
-            }
-        }
-        private val sessions =
-            mutableMapOf<String, DeviceInsightSession>()
-
-        fun onDeviceConnected(
-            device: BluetoothDevice,
-            transport: String
-        ) {
-
-            val session = DeviceInsightSession(
-                deviceName = safeDeviceName(device),
-
-                macAddress = device.address,
-                transportType = transport,
-                connectedAt = System.currentTimeMillis()
+    fun onGattServicesDiscovered(device: BluetoothDevice, gatt: BluetoothGatt) {
+        val session = sessions[device.address] ?: return
+        session.services.clear()
+        gatt.services.forEach { service ->
+            val serviceInsight = ServiceInsight(
+                serviceName = BluetoothUuidRegistry.getServiceName(service.uuid),
+                serviceUuid = service.uuid.toString()
             )
-
-            detectAudioCapabilities(device, session)
-
-            sessions[device.address] = session
-        }
-
-        fun onGattServicesDiscovered(
-            device: BluetoothDevice,
-            gatt: BluetoothGatt
-        ) {
-
-            val session = sessions[device.address]
-                ?: return
-
-            gatt.services.forEach { service ->
-
-                val serviceInsight = ServiceInsight(
-                    serviceName = BluetoothUuidRegistry
-                        .getServiceName(service.uuid),
-                    serviceUuid = service.uuid.toString()
-                )
-
-                service.characteristics.forEach { characteristic ->
-
-                    serviceInsight.characteristics.add(
-                        CharacteristicInsight(
-                            characteristicName =
-                                BluetoothUuidRegistry
-                                    .getCharacteristicName(
-                                        characteristic.uuid
-                                    ),
-
-                            uuid = characteristic.uuid.toString(),
-
-                            properties =
-                                CharacteristicPropertyParser
-                                    .parse(characteristic.properties)
-                        )
-                    )
-                }
-
-                session.services.add(serviceInsight)
-            }
-        }
-
-        fun updateMtu(
-            device: BluetoothDevice,
-            mtu: Int
-        ) {
-            sessions[device.address]?.mtu = mtu
-        }
-
-        fun updateRssi(
-            device: BluetoothDevice,
-            rssi: Int
-        ) {
-            sessions[device.address]?.rssi = rssi
-        }
-
-        fun addEvent(
-            device: BluetoothDevice,
-            message: String
-        ) {
-
-            sessions[device.address]
-                ?.events
-                ?.add(
-                    DeviceEvent(
-                        timestamp = System.currentTimeMillis(),
-                        message = message
+            service.characteristics.forEach { characteristic ->
+                serviceInsight.characteristics.add(
+                    CharacteristicInsight(
+                        characteristicName = BluetoothUuidRegistry.getCharacteristicName(characteristic.uuid),
+                        uuid = characteristic.uuid.toString(),
+                        properties = CharacteristicPropertyParser.parse(characteristic.properties)
                     )
                 )
-        }
-
-        fun onDisconnected(
-            device: BluetoothDevice,
-            reason: String
-        ) {
-
-            sessions[device.address]?.apply {
-
-                disconnectedAt = System.currentTimeMillis()
-                disconnectReason = reason
             }
-        }
-
-        fun getSession(
-            macAddress: String
-        ): DeviceInsightSession? {
-
-            return sessions[macAddress]
-        }
-
-        fun getAllSessions(): List<DeviceInsightSession> {
-            return sessions.values.toList()
-        }
-    private fun safeBluetoothClass(
-        device: BluetoothDevice
-    ): BluetoothClass? {
-
-        return try {
-
-            if (
-                BluetoothPermissionUtils
-                    .hasBluetoothConnectPermission(context)
-            ) {
-                device.bluetoothClass
-            } else {
-                null
-            }
-
-        } catch (_: SecurityException) {
-
-            null
+            session.services.add(serviceInsight)
         }
     }
-        private fun detectAudioCapabilities(
-            device: BluetoothDevice,
-            session: DeviceInsightSession
-        ) {
 
-            val bluetoothClass =
-                safeBluetoothClass(device)
+    fun updateMtu(device: BluetoothDevice, mtu: Int) {
+        sessions[device.address]?.mtu = mtu
+    }
 
-            val isAudioDevice =
-                bluetoothClass?.majorDeviceClass ==
-                        BluetoothClass.Device.Major.AUDIO_VIDEO
+    fun updateRssi(deviceAddress: String, rssi: Int) {
+        sessions[deviceAddress]?.rssi = rssi
+    }
 
-            session.isAudioDevice = isAudioDevice
+    fun addDeviceEvent(deviceAddress: String, message: String) {
+        sessions[deviceAddress]?.events?.add(DeviceEvent(System.currentTimeMillis(), message))
+    }
 
-            if (!isAudioDevice) return
-
-            session.audioProfiles["A2DP"] =
-                AudioProfileState.CONNECTED
-
-            val audioManager =
-                context.getSystemService(Context.AUDIO_SERVICE)
-                        as AudioManager
-
-            session.isAudioPlaying =
-                audioManager.isMusicActive
+    fun onDisconnected(deviceAddress: String, reason: String) {
+        sessions[deviceAddress]?.apply {
+            disconnectedAt = System.currentTimeMillis()
+            disconnectReason = reason
         }
+    }
+
+    fun getSession(macAddress: String): DeviceInsightSession? = sessions[macAddress]
+    fun getAllSessions(): List<DeviceInsightSession> = sessions.values.toList()
+
+    private fun detectAudioCapabilities(device: BluetoothDevice, session: DeviceInsightSession, context: Context) {
+        val bluetoothClass = try { device.bluetoothClass } catch (_: SecurityException) { null }
+        val isAudioDevice = bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO
+        session.isAudioDevice = isAudioDevice
+        if (!isAudioDevice) return
+        session.audioProfiles["A2DP"] = AudioProfileState.CONNECTED
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        session.isAudioPlaying = audioManager.isMusicActive
+    }
 }

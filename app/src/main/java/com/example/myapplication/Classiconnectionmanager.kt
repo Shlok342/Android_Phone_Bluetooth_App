@@ -482,5 +482,9 @@ class ClassicConnectionManager(private val appContext: Context) {
     } catch (_: SecurityException) { "Unknown" }
 
     fun isConnected() = _state.value == ClassicState.CONNECTED
-
+    fun resetToIdle() {
+        if (_state.value == ClassicState.DISCONNECTED || _state.value is ClassicState.FAILED) {
+            updateState(ClassicState.IDLE)
+        }
+    }
 }

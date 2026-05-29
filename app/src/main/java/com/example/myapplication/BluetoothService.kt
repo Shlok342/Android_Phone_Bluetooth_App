@@ -50,6 +50,11 @@ class BluetoothService : Service() {
             isDisconnecting = false
         }, 500)
     }
+    fun resetToIdle() {
+        if (currentState == BleState.DISCONNECTED || currentState == BleState.FAILED) {
+            currentState = BleState.IDLE
+        }
+    }
     // REPLACE disconnectInternal() with this:
     private fun disconnectInternal() {
         cancelTimeout()
@@ -184,7 +189,8 @@ class BluetoothService : Service() {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             val address = gatt.device.address
-
+            DeviceInsightManager.onAppEvent("BLE GATT: Connection state changed. Status: $status, NewState: $newState")
+            
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 updateNotification("Connection failed (status $status)")
                 cleanUp()
@@ -197,6 +203,8 @@ class BluetoothService : Service() {
             when (newState) {
 
                 BluetoothProfile.STATE_CONNECTED -> {
+                    DeviceInsightManager.onDeviceConnected(gatt.device, "BLE", this@BluetoothService)
+                    DeviceInsightManager.addDeviceEvent(address, "GATT Layer Connected")
 
                     connectedDeviceName = try {
                         if (
@@ -265,6 +273,7 @@ class BluetoothService : Service() {
                 }
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    DeviceInsightManager.onDisconnected(address, "GATT Disconnected (Status $status)")
                     if (isDisconnecting) return
                     cancelTimeout()
                     currentState = BleState.DISCONNECTED
@@ -288,7 +297,11 @@ class BluetoothService : Service() {
         }
 
         override fun onServicesDiscovered (gatt: BluetoothGatt, status: Int) {
-
+            DeviceInsightManager.onAppEvent("BLE GATT: Services Discovered. Status: $status")
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.onGattServicesDiscovered(gatt.device, gatt)
+                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Services Discovered: ${gatt.services.size} services")
+            }
             cancelTimeout()
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 currentState = BleState.FAILED
@@ -306,6 +319,7 @@ class BluetoothService : Service() {
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Read Characteristic: ${characteristic.uuid}")
                 val hex = value.joinToString(" ") { "%02X".format(it) }
                 val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
                 onDataReceived?.invoke("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
@@ -783,7 +797,7 @@ class BluetoothService : Service() {
 
     // ─── Public API ───────────────────────────────────────────────────────────
     fun connect(device: BluetoothDevice) {
-
+        DeviceInsightManager.onAppEvent("BLE: Initiating connection to ${device.address}")
         // Prevent duplicate connection attempts
         if (
             currentState == BleState.CONNECTING ||

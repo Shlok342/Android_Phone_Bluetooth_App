@@ -36,7 +36,11 @@ class MainActivity : AppCompatActivity() {
     private var pendingRefresh = false
     private var hasAudioEverConnected = false
     private var delayedStatusRunnable: Runnable? = null
-    
+    private var notifyScheduled = false
+    private val notifyRunnable = Runnable {
+        notifyScheduled = false
+        ui.deviceAdapter.notifyDataSetChanged()
+    }
     private val bleDeviceList = mutableListOf<BleDeviceItem>()
     private val bleDeviceMap = mutableMapOf<String, BluetoothDevice>()
     private val classicDeviceList = mutableListOf<ClassicDeviceItem>()
@@ -235,19 +239,30 @@ class MainActivity : AppCompatActivity() {
             classicDeviceList = classicDeviceList,
             classicDeviceMap = classicDeviceMap,
             onRefresh = {
+                DeviceInsightManager.onAppEvent("UI: Refresh requested")
                 if (activeTab == ActiveTab.BLE) {
                     SystemTimeline.log("🔄 BLE refresh triggered")
-                    pendingRefresh = true
                     stopBleScan()
                     bluetoothService?.disconnect()
+                    uiHandler.postDelayed({
+                        lastScanStartTime = 0L          // bypass 10s cooldown for explicit refresh
+                        bleDeviceList.clear()
+                        bleDeviceMap.clear()
+                        ui.deviceAdapter.notifyDataSetChanged()
+                        startBleScan()
+                    }, 900)
                 } else {
                     SystemTimeline.log("🔄 Classic refresh triggered")
                     stopClassicScan()
                     this.startClassicScan()
                 }
             },
-            onStopScan = { if (activeTab == ActiveTab.BLE) stopBleScan() else stopClassicScan() },
+            onStopScan = { 
+                DeviceInsightManager.onAppEvent("UI: Stop scan requested")
+                if (activeTab == ActiveTab.BLE) stopBleScan() else stopClassicScan() 
+            },
             onDisconnect = {
+                DeviceInsightManager.onAppEvent("UI: Disconnect requested")
                 if (activeTab == ActiveTab.BLE) {
                     SystemTimeline.log("⏏ BLE disconnect requested")
                     bluetoothService?.disconnect()
@@ -257,20 +272,31 @@ class MainActivity : AppCompatActivity() {
                 }
             },
             onTabBle = {
+                DeviceInsightManager.onAppEvent("UI: Switched to BLE tab")
                 activeTab = ActiveTab.BLE
                 SystemTimeline.log("📑 Switched to BLE tab")
                 stopClassicScan()
                 if (!isScanning) startBleScan()
             },
             onTabClassic = {
+                DeviceInsightManager.onAppEvent("UI: Switched to Classic tab")
                 activeTab = ActiveTab.CLASSIC
                 SystemTimeline.log("📑 Switched to Classic tab")
                 stopBleScan()
                 this.startClassicScan()
             },
-            onFeatures = { classicUiController.showClassicFeaturesSheet() },
-            connectBleCallback = { device -> connectToDevice(device) },
-            connectClassicCallback = { device -> classicService?.connectionManager?.connect(device) }
+            onFeatures = { 
+                DeviceInsightManager.onAppEvent("UI: Launching Procedural Insights")
+                ProceduralInsightsSheet(this).show() 
+            },
+            connectBleCallback = { device -> 
+                DeviceInsightManager.onAppEvent("UI: Connecting to BLE device ${device.address}")
+                connectToDevice(device) 
+            },
+            connectClassicCallback = { device -> 
+                DeviceInsightManager.onAppEvent("UI: Connecting to Classic device ${device.address}")
+                classicService?.connectionManager?.connect(device) 
+            }
         )
 
         checkPermissionsAndStartService()
@@ -408,8 +434,9 @@ class MainActivity : AppCompatActivity() {
 
                 bleDeviceMap[item.address] = device
 
-                if (changed) {
-                    ui.deviceAdapter.notifyDataSetChanged()
+                if (changed && !notifyScheduled) {
+                    notifyScheduled = true
+                    uiHandler.postDelayed(notifyRunnable, 250)
                 }
             }
         },
@@ -430,7 +457,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun startBleScan() {
-
+        DeviceInsightManager.onAppEvent("BLE: Scan Started")
         val now = System.currentTimeMillis()
 
         // Prevent Android BLE throttling
@@ -472,7 +499,8 @@ class MainActivity : AppCompatActivity() {
         // Stop any ongoing scans before starting a new one
         stopBleScan()
         stopClassicScan()
-
+        uiHandler.removeCallbacks(notifyRunnable)
+        notifyScheduled = false
         bleDeviceList.clear()
         bleDeviceMap.clear()
 
@@ -519,6 +547,8 @@ class MainActivity : AppCompatActivity() {
             SystemTimeline.log("⏹ BLE scan stopped")
             scanHandler.removeCallbacks(scanTimeoutRunnable)
             isScanning = false
+            uiHandler.removeCallbacks(notifyRunnable)
+            notifyScheduled = false
 
             Log.d("BLE_SCAN", "SCAN STOPPED")
 
@@ -604,7 +634,15 @@ class MainActivity : AppCompatActivity() {
         if (isBound) { unbindService(serviceConnection); isBound = false }
         if (isClassicBound) { unbindService(classicConnection); isClassicBound = false }
     }
-
+    override fun onResume() {
+        super.onResume()
+        bluetoothService?.let {
+            if (it.currentState == BleState.DISCONNECTED || it.currentState == BleState.FAILED) {
+                it.resetToIdle()
+            }
+        }
+        classicService?.connectionManager?.resetToIdle()
+    }
     override fun onStart() {
         super.onStart()
         if (!isBound) startBluetoothService()

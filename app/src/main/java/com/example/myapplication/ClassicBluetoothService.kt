@@ -99,7 +99,7 @@ class ClassicBluetoothService : Service() {
                 context: Context,
                 intent: Intent
             ) {
-
+                DeviceInsightManager.onAppEvent("Classic A2DP: Intent received: ${intent.action}")
                 val device =
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                         intent.getParcelableExtra(
@@ -120,7 +120,7 @@ class ClassicBluetoothService : Service() {
                             BluetoothProfile.EXTRA_STATE,
                             BluetoothProfile.STATE_DISCONNECTED
                         )
-
+                        DeviceInsightManager.onAppEvent("Classic A2DP: Connection state changed to $state")
                         audioProfileManager
                             .onA2dpConnectionStateChanged(
                                 device,
@@ -134,7 +134,7 @@ class ClassicBluetoothService : Service() {
                             BluetoothProfile.EXTRA_STATE,
                             BluetoothA2dp.STATE_NOT_PLAYING
                         )
-
+                        DeviceInsightManager.onAppEvent("Classic A2DP: Playing state changed to $state")
                         audioProfileManager
                             .onA2dpPlayingStateChanged(
                                 device,
@@ -216,6 +216,11 @@ class ClassicBluetoothService : Service() {
         // FIX: Requires 'import kotlinx.coroutines.launch'
         serviceScope.launch {
             connectionManager.connectionInfo.collect { info ->
+                DeviceInsightManager.onAppEvent("Classic Connection: State=${info.state}, Device=${info.deviceName}")
+                if (info.state == ClassicState.CONNECTED) {
+                    // Logic to find device if possible, but let's at least log the address
+                    DeviceInsightManager.onAppEvent("Classic: Device ${info.deviceName} (${info.address}) Connected")
+                }
                 updateNotification(
                     when (val state = info.state) {
 
