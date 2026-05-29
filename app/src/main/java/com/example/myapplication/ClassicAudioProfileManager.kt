@@ -11,25 +11,25 @@ import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicInteger
 import android.bluetooth.BluetoothCodecConfig
 import android.annotation.SuppressLint
-sealed class AudioProfileState {
-    object IDLE : AudioProfileState()
+    sealed class AudioProfileState {
+        object IDLE : AudioProfileState()
 
-    object CONNECTING : AudioProfileState()
+        object CONNECTING : AudioProfileState()
 
-    object CONNECTED : AudioProfileState()
+        object CONNECTED : AudioProfileState()
 
-    object PLAYING : AudioProfileState()
+        object PLAYING : AudioProfileState()
 
-    object DISCONNECTED : AudioProfileState()
+        object DISCONNECTED : AudioProfileState()
 
-    data class RECONNECTING(
-        val attempt: Int
-    ) : AudioProfileState()
+        data class RECONNECTING(
+            val attempt: Int
+        ) : AudioProfileState()
 
-    data class FAILED(
-        val reason: String
-    ) : AudioProfileState()
-}
+        data class FAILED(
+            val reason: String
+        ) : AudioProfileState()
+    }
 
 data class AudioConnectionInfo(
     val state: AudioProfileState,

@@ -288,6 +288,7 @@ class BluetoothService : Service() {
         }
 
         override fun onServicesDiscovered (gatt: BluetoothGatt, status: Int) {
+
             cancelTimeout()
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 currentState = BleState.FAILED
@@ -300,8 +301,6 @@ class BluetoothService : Service() {
             setupCharacteristics(gatt)
 
             currentState = BleState.READY
-
-
             updateNotification("Ready: $connectedDeviceName")
         }
 
