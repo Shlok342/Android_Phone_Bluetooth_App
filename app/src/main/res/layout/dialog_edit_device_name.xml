@@ -60,5 +60,35 @@
         android:imeOptions="actionDone"
 
         android:backgroundTint="@android:color/transparent"/>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnClearAllCustomNames"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+
+        android:layout_marginTop="14dp"
+        android:layout_gravity="end"
+
+        android:text="Clear All"
+        android:textAllCaps="false"
+
+        android:textSize="12sp"
+        android:textStyle="bold"
+
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+
+        android:textColor="#FFD7D7"
+
+        app:backgroundTint="#A94444"
+
+        app:cornerRadius="12dp"
+
+        elevation="0dp"/>
 
 </LinearLayout>

@@ -43,7 +43,7 @@
     <string name="transfer_status">✅ %1$s: %2$s</string>
     <string name="send_file">Send File 📁</string>
     <string name="features_button_txt">Features ⚙️</string>
-    <string name="classic_features">Classic Features</string>
+    <string name="features">App Features</string>
     <string name="edit_device_name">Edit device name</string>
     <string name="hint_for_rename_option">AirPods Pro</string>
     <string name="rename_device">Rename Device</string>
@@ -52,4 +52,5 @@
     <string name="procedural_insights_title">Procedural Insights</string>
     <string name="events_are_null">No events recorded yet.</string>
     <string name="clear_in_procedural_insights">Clear</string>
+    <string name="clear_edit_button">Reset All Custom Names</string>
 </resources>

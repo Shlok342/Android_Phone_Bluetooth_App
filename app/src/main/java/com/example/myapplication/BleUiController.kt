@@ -26,7 +26,9 @@ class BleUiController(
     fun updateStatusUi(state: BleState, address: String) {
         delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
         backgroundView.transitionToState(state)
-        val name = getConnectedDeviceName() ?: "Device"
+        val name = (if (address.isNotEmpty()) DeviceNameStore.get(activity, address) else null)
+            ?: getConnectedDeviceName()
+            ?: "Device"
         val statusMsg = when (state) {
             BleState.IDLE -> activity.getString(R.string.not_connected)
             BleState.CONNECTING -> {

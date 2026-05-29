@@ -31,7 +31,9 @@ class ClassicUiController (
 }
     fun updateClassicStatusUi(state: ClassicState, address: String) {
         backgroundView.transitionToClassicState(state)
-        val name = getConnectedDeviceName() ?: "Device"
+        val name = (if (address.isNotEmpty()) DeviceNameStore.get(activity, address) else null)
+            ?: getConnectedDeviceName()
+            ?: "Device"
         val statusMsg = when (state) {
             ClassicState.IDLE -> "Classic: Idle"
             ClassicState.CONNECTING -> "Classic: Connecting to $name..."
@@ -79,7 +81,7 @@ class ClassicUiController (
     fun showClassicFeaturesSheet() {
         val sheet = BottomSheetDialog(activity)
         val container = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 28, 32, 40) }
-        val title = TextView(activity).apply { text = activity.getString(R.string.classic_features); textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(activity.getColor(R.color.color_text_primary)); setPadding(0, 0, 0, 20.dp(activity)) }
+        val title = TextView(activity).apply { text = activity.getString(R.string.features); textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(activity.getColor(R.color.color_text_primary)); setPadding(0, 0, 0, 20.dp(activity)) }
         container.addView(title)
         val sendFileBtn = MaterialButton(activity).apply { text = activity.getString(R.string.send_file); textSize = 13f; letterSpacing = 0.03f; setTextColor(activity.getColor(R.color.color_text_primary)); setBackgroundResource(R.drawable.bg_button_glass); stateListAnimator = null; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10.dp(activity) }; setOnClickListener { sheet.dismiss(); if (isClassicConnected()) onSendFile() } }
         container.addView(sendFileBtn)
@@ -132,8 +134,19 @@ class ClassicUiController (
             stateListAnimator = null
             setPadding(16.dp(activity), 0, 16.dp(activity), 0)
         }
+        val closeBtn = MaterialButton(activity).apply {
+            text = "✕"
+            textSize = 14f
+            setTextColor(activity.getColor(R.color.color_text_secondary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            stateListAnimator = null
+            setPadding(16.dp(activity), 0, 16.dp(activity), 0)
+            setOnClickListener { sheet.dismiss(); showClassicFeaturesSheet() }
+        }
         headerRow.addView(title)
         headerRow.addView(clearBtn)
+        headerRow.addView(closeBtn)
         root.addView(headerRow)
 
         // ── Divider ──────────────────────────────────────────────
@@ -165,7 +178,7 @@ class ClassicUiController (
                     eventList.addView(TextView(activity).apply {
                         text = event.formatted
                         textSize = 12f
-                        typeface = android.graphics.Typeface.MONOSPACE
+                        typeface = Typeface.MONOSPACE
                         setTextColor(activity.getColor(R.color.color_text_secondary))
                         setPadding(0, 7.dp(activity), 0, 7.dp(activity))
                     })

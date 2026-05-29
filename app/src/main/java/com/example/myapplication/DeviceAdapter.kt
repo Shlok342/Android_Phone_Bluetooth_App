@@ -74,7 +74,8 @@ class DeviceAdapter(
                 .inflate(R.layout.dialog_edit_device_name, null)
 
             val input = dialogView.findViewById<EditText>(R.id.editNameInput)
-
+            val clearAllBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnClearAllCustomNames)
             input.setText(
                 DeviceNameStore.get(ctx, item.address)
                     ?: item.name
@@ -95,7 +96,9 @@ class DeviceAdapter(
                     } else {
                         DeviceNameStore.save(ctx, item.address, name)
                     }
+                    notifyDataSetChanged()
                 }
+
 
                 .setNegativeButton("Cancel", null)
 
@@ -107,6 +110,20 @@ class DeviceAdapter(
 
                 alert.getButton(AlertDialog.BUTTON_NEGATIVE)
                     .setTextColor("#AEB4C2".toColorInt())
+                clearAllBtn.setOnClickListener {
+
+                    DeviceNameStore.clearAll(ctx)
+
+                    notifyDataSetChanged()
+
+                    Toast.makeText(
+                        ctx,
+                        "All custom names cleared",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    alert.dismiss()
+                }
         }
         return view
     }

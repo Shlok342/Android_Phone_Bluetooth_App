@@ -285,9 +285,9 @@ class MainActivity : AppCompatActivity() {
                 stopBleScan()
                 this.startClassicScan()
             },
-            onFeatures = { 
-                DeviceInsightManager.onAppEvent("UI: Launching Procedural Insights")
-                ProceduralInsightsSheet(this).show() 
+            onFeatures = {
+                DeviceInsightManager.onAppEvent("UI: Launching Features Sheet")
+                classicUiController.showClassicFeaturesSheet()
             },
             connectBleCallback = { device -> 
                 DeviceInsightManager.onAppEvent("UI: Connecting to BLE device ${device.address}")

@@ -12,6 +12,7 @@ import android.app.AlertDialog
 import android.widget.EditText
 import android.widget.ImageButton
 import androidx.core.graphics.toColorInt
+import com.google.android.material.button.MaterialButton
 
 // ─── Simple Adapter ──────────────────────────────────────────────────────────
 
@@ -49,7 +50,8 @@ class ClassicDeviceAdapter(
                 .inflate(R.layout.dialog_edit_device_name, null)
 
             val input = dialogView.findViewById<EditText>(R.id.editNameInput)
-
+            val clearAllBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnClearAllCustomNames)
             input.setText(
                 DeviceNameStore.get(ctx, item.address)
                     ?: item.name
@@ -70,18 +72,37 @@ class ClassicDeviceAdapter(
                     } else {
                         DeviceNameStore.save(ctx, item.address, name)
                     }
+
+                    notifyDataSetChanged()
                 }
 
                 .setNegativeButton("Cancel", null)
 
                 .show()
+
             alert.getButton(AlertDialog.BUTTON_POSITIVE).isAllCaps = false
             alert.getButton(AlertDialog.BUTTON_NEGATIVE).isAllCaps = false
+
             alert.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setTextColor("#E8E9F0".toColorInt())
 
             alert.getButton(AlertDialog.BUTTON_NEGATIVE)
                 .setTextColor("#AEB4C2".toColorInt())
+
+            clearAllBtn.setOnClickListener {
+
+                DeviceNameStore.clearAll(ctx)
+
+                notifyDataSetChanged()
+
+                Toast.makeText(
+                    ctx,
+                    "All custom names cleared",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                alert.dismiss()
+            }
         }
         return view
     }
