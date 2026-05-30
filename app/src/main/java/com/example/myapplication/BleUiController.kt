@@ -46,7 +46,7 @@ class BleUiController(
                         animateStatusText(statusText, activity.getString(R.string.taking_longer_than_expected_may_disconnect))
                     }
                 }
-                uiHandler.postDelayed(delayedStatusRunnable!!, 25000)
+                uiHandler.postDelayed(delayedStatusRunnable!!, 10000)
                 activity.getString(R.string.pairing_new) + name
             }
             BleState.DISCOVERING_SERVICES -> activity.getString(R.string.paired_connecting)

@@ -11,7 +11,6 @@ import androidx.core.content.ContextCompat
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -32,7 +31,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         private const val READ_INACTIVITY_CHECK_MS =  5_000L
         private const val WRITE_TIMEOUT_MS         =  5_000L
         const val RECONNECT_MAX_ATTEMPTS   =  3
-        private const val FAILURE_COOLDOWN_MS      = 60_000L
+
 
         fun cancelDiscovery(context: Context) {
             try {
@@ -107,24 +106,33 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Coroutine Jobs ────────────────────────────────────
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val reconnectScheduler = ReconnectScheduler(
+        scope                      = managerScope,
+        maxAttempts                = RECONNECT_MAX_ATTEMPTS,
+        getIsIntentionalDisconnect = { isIntentionalDisconnect },
+        onUpdateState              = ::updateState,
+        onLogEvent                 = ::logEvent,
+        onDoConnect                = ::doConnect
+    )
+    val reconnectAttempts: Int get() = reconnectScheduler.reconnectAttempts
     private var connectJob:           Job? = null
     private var readJob:              Job? = null
     private var connectionTimeoutJob: Job? = null
     private var inactivityTimeoutJob: Job? = null
-    private var reconnectJob:         Job? = null
+
 
     // ─── Reconnect State ───────────────────────────────────
     private var lastDevice:            BluetoothDevice? = null
     @Volatile private var isIntentionalDisconnect = false
-    private val _reconnectAttempts = java.util.concurrent.atomic.AtomicInteger(0)
-    val reconnectAttempts: Int get() = _reconnectAttempts.get()
-    private val consecutiveFailures = java.util.concurrent.atomic.AtomicInteger(0)
-    @Volatile private var lastFailureTime     = 0L
+
+
+
+
 
     // ─── Read State ────────────────────────────────────────
     @Volatile private var lastReadTime = 0L
 
-    private val sppUUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
+
 
 
 
@@ -161,9 +169,8 @@ class ClassicConnectionManager(private val appContext: Context) {
     @Synchronized
     fun connect(device: BluetoothDevice) {
         isIntentionalDisconnect = false
-        _reconnectAttempts.set(0)
-        consecutiveFailures.set(0)
-        cancelReconnect()
+        reconnectScheduler.reset()
+        reconnectScheduler.cancelReconnect()
         doConnect(device)
     }
 
@@ -198,7 +205,7 @@ class ClassicConnectionManager(private val appContext: Context) {
                     // Log the error or gracefully degrade the feature.
                     e.printStackTrace()
                 }
-                val socket = createSocket(device)
+                val socket = SocketFactory.createSocket(device)
                 bluetoothSocket = socket
                 inputStream  = socket.inputStream
                 outputStream = socket.outputStream
@@ -208,79 +215,20 @@ class ClassicConnectionManager(private val appContext: Context) {
                 if (isActive &&
                     _state.value !is ClassicState.RECONNECTING &&
                     _state.value !is ClassicState.FAILED) {
-                    handleConnectionFailure()
+                    reconnectScheduler.handleConnectionFailure(device)
                 }
             }
         }
     }
-    private fun log(message: String) {
-        android.util.Log.d(
-            "ClassicConnectionManager",
-            message
-        )
-    }
-    private fun createSocket(device: BluetoothDevice): BluetoothSocket {
 
-        try {
-            log("Trying insecure RFCOMM...")
 
-            val insecureSocket =
-                device.createInsecureRfcommSocketToServiceRecord(sppUUID)
 
-            insecureSocket.connect()
 
-            log("Insecure RFCOMM success")
-
-            return insecureSocket
-
-        } catch (e: IOException) {
-
-            log("Insecure RFCOMM failed: ${e.message}")
-        }
-
-        try {
-            log("Trying secure RFCOMM...")
-
-            val secureSocket =
-                device.createRfcommSocketToServiceRecord(sppUUID)
-
-            secureSocket.connect()
-
-            log("Secure RFCOMM success")
-
-            return secureSocket
-
-        } catch (e: IOException) {
-
-            log("Secure RFCOMM failed: ${e.message}")
-        }
-
-        log("Trying reflection fallback...")
-
-        val fallbackSocket = createFallbackSocket(device)
-
-        fallbackSocket.connect()
-
-        return fallbackSocket
-    }
-
-    private fun createFallbackSocket(
-        device: BluetoothDevice
-    ): BluetoothSocket {
-
-        return device.javaClass
-            .getMethod(
-                "createRfcommSocket",
-                Int::class.javaPrimitiveType
-            )
-            .invoke(device, 1) as BluetoothSocket
-    }
 
     private fun onConnected() {
         logEvent("Connected to $connectedDeviceName ($connectedDeviceAddress)")
         cancelConnectionTimeout()
-        consecutiveFailures.set(0)
-        _reconnectAttempts.set(0)
+        reconnectScheduler.reset()
         lastReadTime        = System.currentTimeMillis()
 
         parser.reset()
@@ -292,7 +240,7 @@ class ClassicConnectionManager(private val appContext: Context) {
             q.onWriteError = {
                 if (_state.value == ClassicState.CONNECTED) {
                     forceDisconnect(FailureReason.Timeout)
-                    scheduleReconnect()
+                    lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
                 }
             }
             q.start { outputStream }
@@ -313,7 +261,8 @@ class ClassicConnectionManager(private val appContext: Context) {
             logEvent("Connection timed out after ${CONNECTION_TIMEOUT_MS}ms")
             if (_state.value == ClassicState.CONNECTING) {
                 disconnectInternal()        // clean up silently
-                handleConnectionFailure()   // schedules reconnect; only reaches FAILED when attempts exhausted
+                val dev = lastDevice ?: return@launch
+                reconnectScheduler.handleConnectionFailure(dev)
             }
         }
     }
@@ -331,7 +280,7 @@ class ClassicConnectionManager(private val appContext: Context) {
                 delay(READ_INACTIVITY_CHECK_MS)
                 if (System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
                     forceDisconnect(FailureReason.Timeout)
-                    scheduleReconnect()
+                    lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
                     break
                 }
             }
@@ -354,7 +303,7 @@ class ClassicConnectionManager(private val appContext: Context) {
                     if (!isIntentionalDisconnect &&
                         _state.value == ClassicState.CONNECTED) {
                         forceDisconnect()
-                        scheduleReconnect()
+                        lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
                     }
                     break
                 }
@@ -370,68 +319,12 @@ class ClassicConnectionManager(private val appContext: Context) {
 
 
     // ─── Reconnect ─────────────────────────────────────────
-    private fun handleConnectionFailure() {
-        consecutiveFailures.incrementAndGet()
-        lastFailureTime = System.currentTimeMillis()
-        scheduleReconnect()
-    }
-
-    private fun scheduleReconnect() {
-        if (isIntentionalDisconnect)         return
-        if (reconnectJob?.isActive == true)  return
-        if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
-
-            updateState(
-                ClassicState.FAILED(
-                    FailureReason.MaxReconnectAttempts
-                )
-            )
-
-            return
-        }
-
-        // Cooldown after repeated failure bursts
-        if (
-            consecutiveFailures.get() >= RECONNECT_MAX_ATTEMPTS &&
-            System.currentTimeMillis() - lastFailureTime < FAILURE_COOLDOWN_MS
-        ) {
-
-            updateState(
-                ClassicState.FAILED(
-                    FailureReason.MaxReconnectAttempts
-                )
-            )
-
-            return
-        }
-
-        val device = lastDevice ?: return
-
-        reconnectJob = managerScope.launch {
-            delay(600)
-            val attempt= _reconnectAttempts.incrementAndGet()
-            val delay = when (attempt) {
-                1 -> 800L
-                2 -> 1600L
-                else -> 3000L
-            }
-            updateState(ClassicState.RECONNECTING(attempt))
-            logEvent("Reconnecting… attempt $reconnectAttempts/$RECONNECT_MAX_ATTEMPTS")
-            delay(delay)
-            if (!isIntentionalDisconnect && isActive) doConnect(device)
-        }
-    }
-
-    private fun cancelReconnect() {
-        reconnectJob?.cancel()
-        reconnectJob = null
-    }
 
     // ─── Public: Manual Disconnect ─────────────────────────
     @Synchronized
     fun disconnect() {
         isIntentionalDisconnect = true
-        cancelReconnect()
+        reconnectScheduler.cancelReconnect()
         cancelDiscovery(appContext)
         forceDisconnect()
     }
