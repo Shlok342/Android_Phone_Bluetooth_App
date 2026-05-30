@@ -34,8 +34,7 @@ class ClassicDeviceAdapter(
         view.findViewById<TextView>(R.id.deviceSignal).text =
             if (item.type == BluetoothDevice.DEVICE_TYPE_DUAL) "Dual (Classic+BLE)" else "Classic"
         view.findViewById<Button>(R.id.connectBtn).apply {
-            isEnabled = false       // ADD THIS
-            alpha = 0.4f            // ADD THIS
+                       // ADD THIS
             isAllCaps = false
             setOnClickListener {
                 deviceMap[item.address]?.let { connectCallback(it) }
