@@ -53,4 +53,5 @@
     <string name="events_are_null">No events recorded yet.</string>
     <string name="clear_in_procedural_insights">Clear</string>
     <string name="clear_edit_button">Reset All Custom Names</string>
+    <string name="format_of_message">[%1$s] %2$s</string>
 </resources>

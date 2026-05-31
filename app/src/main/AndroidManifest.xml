@@ -35,7 +35,7 @@
         >
 
         <!-- 👇 Activity goes INSIDE application -->
-        <activity android:name=".MainActivity"
+        <activity android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -43,14 +43,14 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".BluetoothService"
+            android:name=".ble.BluetoothService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintaining active Bluetooth connection to paired BLE device" />
         </service>
-        <service android:name=".ClassicBluetoothService"
+        <service android:name=".classic.ClassicBluetoothService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false">
             <property
