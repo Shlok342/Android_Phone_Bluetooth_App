@@ -21,7 +21,7 @@ import java.util.Date
 import java.util.Locale
 
 class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
-
+    var deviceInsightAdapter: DeviceInsightAdapter? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val view = LayoutInflater.from(context).inflate(R.layout.fragment_device_insights, null)
@@ -29,7 +29,7 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
 
         val tabLayout = view.findViewById<TabLayout>(R.id.insightsTabLayout)
         val viewPager = view.findViewById<ViewPager2>(R.id.insightsViewPager)
-
+        var deviceInsightAdapter: DeviceInsightAdapter? = null
         viewPager.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
                 val rv = RecyclerView(parent.context).apply {
@@ -44,17 +44,30 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
                 if (position == 0) {
                     rv.adapter = AppEventsAdapter(DeviceInsightManager.getAppEvents())
                 } else {
-                    rv.adapter =
-                        DeviceInsightAdapter(DeviceInsightManager.getAllSessions().toMutableList())
+
+                    deviceInsightAdapter = DeviceInsightAdapter(
+                        DeviceInsightManager.getAllSessions().toMutableList()
+                    )
+                    rv.adapter = deviceInsightAdapter
                 }
             }
 
             override fun getItemCount(): Int = 2
         }
 
+// ADD THIS BLOCK after setting the adapter:
+
+
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = if (position == 0) "App Status" else "Device Metrics"
         }.attach()
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                if (position == 1) {
+                    deviceInsightAdapter?.updateData(DeviceInsightManager.getAllSessions())
+                }
+            }
+        })
     }
 
     class AppEventsAdapter(private val events: List<DeviceEvent>) : RecyclerView.Adapter<AppEventsAdapter.ViewHolder>() {

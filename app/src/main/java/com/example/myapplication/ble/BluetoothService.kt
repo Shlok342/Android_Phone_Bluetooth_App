@@ -1,13 +1,11 @@
 package com.example.myapplication.ble
 
-import android.Manifest
 import android.app.*
 import android.bluetooth.*
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -15,7 +13,7 @@ import android.os.IBinder
 import android.os.Looper
 import com.example.myapplication.insights.DeviceInsightManager
 import java.util.UUID
-
+import com.example.myapplication.util.BluetoothPermissionUtils
 enum class BleState {
     IDLE,
     CONNECTING,
@@ -165,9 +163,7 @@ class BluetoothService : Service() {
                     DeviceInsightManager.addDeviceEvent(address, "GATT Layer Connected")
 
                     connectedDeviceName = try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-                        ) "Unknown Device"
+                        if (!BluetoothPermissionUtils.hasBluetoothConnectPermission(this@BluetoothService)) "Unknown Device"
                         else gatt.device.name ?: "Unknown Device"
                     } catch (_: SecurityException) { "Unknown Device" }
 
@@ -237,6 +233,8 @@ class BluetoothService : Service() {
             setupCharacteristics(gatt)
             currentState = BleState.READY
             bleNotificationManager.updateNotification("Ready: $connectedDeviceName")
+            try { gatt.requestMtu(512) } catch (_: SecurityException) {}
+            try { gatt.readRemoteRssi() } catch (_: SecurityException) {}
         }
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
@@ -257,6 +255,19 @@ class BluetoothService : Service() {
             val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
             onDataReceived?.invoke("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
             gattOperationComplete()
+        }
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.updateMtu(gatt.device, mtu)
+                onDataReceived?.invoke("[MTU] Negotiated: $mtu bytes")
+            }
+        }
+
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.updateRssi(gatt.device.address, rssi)
+                onDataReceived?.invoke("[RSSI] $rssi dBm")
+            }
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -401,9 +412,7 @@ class BluetoothService : Service() {
 
         connectedDeviceAddress = device.address
         connectedDeviceName = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-            ) "Unknown Device"
+            if (!BluetoothPermissionUtils.hasBluetoothConnectPermission(this)) "Unknown Device"
             else device.name ?: "Unknown Device"
         } catch (_: SecurityException) { "Unknown Device" }
 

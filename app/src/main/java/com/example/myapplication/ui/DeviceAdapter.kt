@@ -15,6 +15,7 @@ import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.R
 import com.example.myapplication.models.BleDeviceItem
 import com.google.android.material.button.MaterialButton
+import com.example.myapplication.insights.DeviceInsightManager
 
 class DeviceAdapter(
     private val devices: MutableList<BleDeviceItem>,
@@ -128,6 +129,15 @@ class DeviceAdapter(
 
                     alert.dismiss()
                 }
+        }
+        view.setOnLongClickListener {
+            val session = DeviceInsightManager.getSession(item.address)
+            val msg = if (session != null)
+                "${session.deviceName}\n${session.services.size} service(s) discovered"
+            else
+                "No session data yet for this device"
+            Toast.makeText(it.context, msg, Toast.LENGTH_LONG).show()
+            true
         }
         return view
     }

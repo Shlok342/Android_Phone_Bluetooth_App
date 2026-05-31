@@ -106,9 +106,10 @@ class ClassicUiController (
             setBackgroundResource(R.drawable.bg_button_glass)
             stateListAnimator = null
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10.dp(activity) }
-            setOnClickListener { sheet.dismiss(); showInsightsModal() }
+            setOnClickListener { sheet.dismiss(); ProceduralInsightsSheet(activity).show() }
         }
         container.addView(insightsBtn)
+
         sheet.setContentView(container)
         sheet.show()
     }
