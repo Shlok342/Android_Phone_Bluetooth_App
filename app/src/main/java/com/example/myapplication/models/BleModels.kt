@@ -19,6 +19,10 @@ enum class ActiveTab {
     BLE, CLASSIC
 }
 
+enum class FilterType {
+    NONE, SAVED, FAVORITES, NEARBY
+}
+
 fun Int.dp(context: Context): Int {
     return (this * context.resources.displayMetrics.density).toInt()
 }
