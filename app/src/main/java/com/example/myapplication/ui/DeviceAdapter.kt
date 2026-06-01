@@ -16,25 +16,55 @@ import com.example.myapplication.R
 import com.example.myapplication.models.BleDeviceItem
 import com.google.android.material.button.MaterialButton
 import com.example.myapplication.insights.DeviceInsightManager
-
+import com.example.myapplication.util.FavoriteStore
+import android.content.Context
 class DeviceAdapter(
+    private val adapterContext: Context,
     private val devices: MutableList<BleDeviceItem>,
     private val deviceMap: Map<String, BluetoothDevice>,
     private val connectCallback: (BluetoothDevice) -> Unit
 ) : BaseAdapter() {
 
-    override fun getCount() = devices.size
+    override fun getCount() = displayList().size
 
-    override fun getItem(p: Int) = devices[p]
+    override fun getItem(p: Int) = displayList()[p]
+
+    // ─── Filter ───────────────────────────────────────────────────────────────
+    private var filterQuery = ""
+    private var filterByMac = false
+
+    private fun displayList(): List<BleDeviceItem> {
+        if (filterQuery.isEmpty()) return devices
+        return if (filterByMac) devices.filter { it.address.contains(filterQuery, ignoreCase = true) }
+        else devices.filter {
+            (DeviceNameStore.get(adapterContext, it.address) ?: it.name).contains(filterQuery, ignoreCase = true)
+        }
+    }
+
+    fun applyFilter(query: String, byMac: Boolean) {
+        filterQuery = query; filterByMac = byMac; notifyDataSetChanged()
+    }
+
+    fun clearFilter() {
+        filterQuery = ""; filterByMac = false; notifyDataSetChanged()
+    }
 
     override fun getItemId(p: Int) = p.toLong()
-
+    private fun updateStarButton(btn: ImageButton, isFavorite: Boolean) {
+        if (isFavorite) {
+            btn.setImageResource(R.drawable.ic_star_filled)
+            btn.setBackgroundResource(R.drawable.bg_star_btn_active)
+        } else {
+            btn.setImageResource(R.drawable.ic_star_outline)
+            btn.setBackgroundResource(R.drawable.bg_star_btn)
+        }
+    }
     override fun getView(p: Int, v: View?, parent: ViewGroup): View {
 
         val view = v ?: LayoutInflater.from(parent.context)
             .inflate(R.layout.device_item, parent, false)
 
-        val item = devices[p]
+        val item = displayList()[p]
 
         val displayName = DeviceNameStore.get(parent.context, item.address) ?: item.name
         view.findViewById<TextView>(R.id.deviceName).text = displayName
@@ -138,6 +168,12 @@ class DeviceAdapter(
                 "No session data yet for this device"
             Toast.makeText(it.context, msg, Toast.LENGTH_LONG).show()
             true
+        }
+        val starBtn = view.findViewById<ImageButton>(R.id.starBtn)
+        updateStarButton(starBtn, FavoriteStore.isFavorite(parent.context, item.address))
+        starBtn.setOnClickListener {
+            val newState = FavoriteStore.toggle(parent.context, item.address)
+            updateStarButton(starBtn, newState)
         }
         return view
     }

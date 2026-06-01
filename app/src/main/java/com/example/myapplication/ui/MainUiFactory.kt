@@ -29,11 +29,14 @@ data class UiComponents(
     val classicActionsRow: LinearLayout,
     val transferStatusText: TextView,
     val deviceAdapter: DeviceAdapter,
-    val classicAdapter: ClassicDeviceAdapter
+    val classicAdapter: ClassicDeviceAdapter,
+    val bleClearFilterBtn: MaterialButton,
+    val classicClearFilterBtn: MaterialButton
 )
 
 object MainUiFactory {
     fun build(
+
         activity: AppCompatActivity,
         bleDeviceList: MutableList<BleDeviceItem>,
         bleDeviceMap: MutableMap<String, BluetoothDevice>,
@@ -48,7 +51,18 @@ object MainUiFactory {
         connectBleCallback: (BluetoothDevice) -> Unit,
         connectClassicCallback: (BluetoothDevice) -> Unit
     ): UiComponents {
-
+        val deviceAdapter = DeviceAdapter(
+            adapterContext = activity,
+            devices = bleDeviceList,
+            deviceMap = bleDeviceMap,
+            connectCallback = { device -> connectBleCallback(device) }
+        )
+        val classicAdapter = ClassicDeviceAdapter(
+            adapterContext = activity,
+            devices = classicDeviceList,
+            deviceMap = classicDeviceMap,
+            connectCallback = { device -> connectClassicCallback(device) }
+        )
         val listView = ListView(activity)
         val statusText = TextView(activity).apply {
             text = activity.getString(R.string.not_connected)
@@ -64,7 +78,38 @@ object MainUiFactory {
             setTextColor(activity.getColor(R.color.color_text_primary))
             setTypeface(null, Typeface.BOLD)
             letterSpacing = 0.10f
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        }
+        val bleSearchBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_search_xml)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity))
+            contentDescription = activity.getString(R.string.search_devices)
+        }
+        val bleClearFilterBtn = MaterialButton(activity).apply {
+            text = "Clear Filter"
+            textSize = 11f; letterSpacing = 0.03f
+            setTextColor(activity.getColor(R.color.white))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            stateListAnimator = null
+            setPadding(12.dp(activity), 0, 12.dp(activity), 0)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity)).apply { marginStart = 8.dp(activity) }
+            visibility = View.GONE
+            setOnClickListener {
+                deviceAdapter.clearFilter()
+                visibility = View.GONE
+            }
+        }
+        val bleHeaderRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(24.dp(activity), 32.dp(activity), 24.dp(activity), 6.dp(activity))
+            addView(bleHeaderText)
+            addView(bleClearFilterBtn)
+            addView(bleSearchBtn)
         }
 
         val classicTextHeader = TextView(activity).apply {
@@ -73,14 +118,70 @@ object MainUiFactory {
             setTextColor(activity.getColor(R.color.color_text_primary))
             setTypeface(null, Typeface.BOLD)
             letterSpacing = 0.10f
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        }
+        val classicSearchBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_search_xml)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity))
+            contentDescription = activity.getString(R.string.search_devices)
+        }
+        val classicClearFilterBtn = MaterialButton(activity).apply {
+            text = "Clear Filter"
+            textSize = 11f; letterSpacing = 0.03f
+            setTextColor(activity.getColor(R.color.white))
+            setBackgroundResource(R.drawable.bg_button_glass)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            stateListAnimator = null
+            setPadding(12.dp(activity), 0, 12.dp(activity), 0)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity)).apply { marginStart = 8.dp(activity) }
+            visibility = View.GONE
+            setOnClickListener {
+                classicAdapter.clearFilter()
+                visibility = View.GONE
+            }
+        }
+        val classicHeaderRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(24.dp(activity), 32.dp(activity), 24.dp(activity), 6.dp(activity))
             visibility = View.GONE
+            addView(classicTextHeader)
+            addView(classicClearFilterBtn)
+            addView(classicSearchBtn)
+        }
+
+        bleSearchBtn.setOnClickListener {
+            DeviceSearchSheet(
+                context = activity,
+                onFilter = { query, byMac -> 
+                    deviceAdapter.applyFilter(query, byMac)
+                    bleClearFilterBtn.visibility = View.GONE
+                },
+                onDismissed = { hasQuery ->
+                    bleClearFilterBtn.visibility = if (hasQuery) View.VISIBLE else View.GONE
+                }
+            ).show()
+        }
+        classicSearchBtn.setOnClickListener {
+            DeviceSearchSheet(
+                context = activity,
+                onFilter = { query, byMac -> 
+                    classicAdapter.applyFilter(query, byMac)
+                    classicClearFilterBtn.visibility = View.GONE
+                },
+                onDismissed = { hasQuery ->
+                    classicClearFilterBtn.visibility = if (hasQuery) View.VISIBLE else View.GONE
+                }
+            ).show()
         }
 
         val layout = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(bleHeaderText)
-            addView(classicTextHeader)
+            addView(bleHeaderRow)
+            addView(classicHeaderRow)
             addView(statusText)
         }
 
@@ -182,9 +283,7 @@ object MainUiFactory {
         }
         val classicListView = ListView(activity).apply { visibility = View.GONE }
         
-        val classicAdapter = ClassicDeviceAdapter(classicDeviceList, classicDeviceMap) { device ->
-            connectClassicCallback(device)
-        }
+
         classicListView.adapter = classicAdapter
 
         val classicActionsRow = LinearLayout(activity).apply {
@@ -226,8 +325,8 @@ object MainUiFactory {
             onTabBle()
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_selected)
             bleTabBtn.setTextColor(activity.getColor(R.color.color_text_primary))
-            bleHeaderText.visibility = View.VISIBLE
-            classicTextHeader.visibility = View.GONE
+            bleHeaderRow.visibility = View.VISIBLE
+            classicHeaderRow.visibility = View.GONE
             classicTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
             classicTabBtn.setTextColor(activity.getColor(R.color.color_text_secondary))
             statusText.visibility = View.VISIBLE
@@ -244,8 +343,8 @@ object MainUiFactory {
             classicTabBtn.setTextColor(activity.getColor(R.color.color_text_primary))
             bleTabBtn.setBackgroundResource(R.drawable.bg_tab_unselected)
             bleTabBtn.setTextColor(activity.getColor(R.color.color_text_secondary))
-            bleHeaderText.visibility = View.GONE
-            classicTextHeader.visibility = View.VISIBLE
+            bleHeaderRow.visibility = View.GONE
+            classicHeaderRow.visibility = View.VISIBLE
             statusText.visibility = View.GONE
             listView.visibility = View.GONE
             classicStatusText.visibility = View.VISIBLE
@@ -267,11 +366,6 @@ object MainUiFactory {
             insets
         }
 
-        val deviceAdapter = DeviceAdapter(
-            devices = bleDeviceList,
-            deviceMap = bleDeviceMap,
-            connectCallback = { device -> connectBleCallback(device) }
-        )
         listView.adapter = deviceAdapter
         
         listView.layoutAnimation = AnimationUtils.loadLayoutAnimation(activity, R.anim.layout_item_slide_in)
@@ -280,7 +374,8 @@ object MainUiFactory {
         return UiComponents(
             rootFrame, backgroundView, listView, classicListView, statusText,
             classicStatusText, bleHeaderText, classicTextHeader, bleTabBtn,
-            classicTabBtn, classicActionsRow, transferStatusText, deviceAdapter, classicAdapter
+            classicTabBtn, classicActionsRow, transferStatusText, deviceAdapter, classicAdapter,
+            bleClearFilterBtn, classicClearFilterBtn
         )
     }
 }

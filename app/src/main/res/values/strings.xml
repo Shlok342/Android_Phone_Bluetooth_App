@@ -37,7 +37,7 @@
     <string name="with">🔐 %1$s with %2$s…</string>
     <string name="sending_classic">⬆ Sending %1$s: %2$d%%</string>
     <string name="receiving_classic">⬇ Receiving %1$s: %2$d%%</string>
-
+    <string name="favorite_device">Favorite device</string>
     <string name="transfer_failed">❌ Transfer failed: %1$s</string>
     <string name="transfer_cancelled">⚠ Transfer cancelled</string>
     <string name="transfer_status">✅ %1$s: %2$s</string>
@@ -54,4 +54,10 @@
     <string name="clear_in_procedural_insights">Clear</string>
     <string name="clear_edit_button">Reset All Custom Names</string>
     <string name="format_of_message">[%1$s] %2$s</string>
+    <string name="search_devices">Search Devices</string>
+    <string name="search_toggle_name">Name</string>
+    <string name="search_toggle_mac">MAC Address</string>
+    <string name="search_hint_name">Filter by device name…</string>
+    <string name="search_hint_mac">Enter MAC address…</string>
+    <string name="search_button_label">Search</string>
 </resources>

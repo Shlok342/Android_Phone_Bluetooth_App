@@ -102,5 +102,16 @@
             android:scaleType="fitCenter"
             android:contentDescription="@string/edit_device_name"
             android:stateListAnimator="@null"/>
+        <ImageButton
+            android:id="@+id/starBtn"
+            android:layout_width="32dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_star_outline"
+            android:background="@drawable/bg_star_btn"
+            android:padding="5dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/favorite_device"
+            android:stateListAnimator="@null"/>
     </LinearLayout>
 </LinearLayout>
