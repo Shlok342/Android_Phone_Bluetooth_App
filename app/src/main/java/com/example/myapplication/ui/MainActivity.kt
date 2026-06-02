@@ -41,6 +41,8 @@ import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
+import android.view.View
+import com.example.myapplication.models.FilterType
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -67,6 +69,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var classicUiController: ClassicUiController
     private var activeTab = ActiveTab.BLE
+    private var activeBleFilter     = FilterType.NONE
+    private var activeClassicFilter = FilterType.NONE
     private var serviceStarted = false
     private var classicServiceStarted = false
 
@@ -335,30 +339,34 @@ class MainActivity : AppCompatActivity() {
             },
             onDeviceFound = { item, device ->
                 runOnUiThread {
-                    val index = bleDeviceList.indexOfFirst { it.address == item.address }
-                    var changed = false
-                    if (index == -1) {
-                        bleDeviceList.add(item)
-                        changed = true
-                    } else {
-                        val old = bleDeviceList[index]
-                        if (old.rssi != item.rssi || old.name != item.name) {
-                            bleDeviceList[index] = item
+                    synchronized(bleDeviceList) {
+                        val index = bleDeviceList.indexOfFirst { it.address == item.address }
+                        var changed = false
+                        if (index == -1) {
+                            bleDeviceList.add(item)
                             changed = true
+                        } else {
+                            val old = bleDeviceList[index]
+                            if (old.rssi != item.rssi || old.name != item.name) {
+                                bleDeviceList[index] = item
+                                changed = true
+                            }
                         }
-                    }
-                    bleDeviceMap[item.address] = device
-                    if (changed && !notifyScheduled) {
-                        notifyScheduled = true
-                        uiHandler.postDelayed(notifyRunnable, 250)
+                        bleDeviceMap[item.address] = device
+                        if (changed && !notifyScheduled) {
+                            notifyScheduled = true
+                            uiHandler.postDelayed(notifyRunnable, 250)
+                        }
                     }
                 }
             },
             onClearDevices = {
                 uiHandler.removeCallbacks(notifyRunnable)
                 notifyScheduled = false
-                bleDeviceList.clear()
-                bleDeviceMap.clear()
+                synchronized(bleDeviceList) {
+                    bleDeviceList.clear()
+                    bleDeviceMap.clear()
+                }
                 runOnUiThread { ui.deviceAdapter.notifyDataSetChanged() }
             },
             onScanStopped = {
@@ -393,6 +401,53 @@ class MainActivity : AppCompatActivity() {
             onDismissDataSheet = { bleUiController.dismissDataSheet() },
             getConnectedDeviceName = { classicService?.connectionManager?.connectedDeviceName }
         )
+        // Override clear-filter buttons so they also reset FilterType
+        ui.bleClearFilterBtn.setOnClickListener {
+            activeBleFilter = FilterType.NONE
+            ui.deviceAdapter.clearFilter()
+            ui.deviceAdapter.applyFilterType(FilterType.NONE)
+            it.visibility = View.GONE
+        }
+        ui.classicClearFilterBtn.setOnClickListener {
+            activeClassicFilter = FilterType.NONE
+            ui.classicAdapter.clearFilter()
+            ui.classicAdapter.applyFilterType(FilterType.NONE)
+            it.visibility = View.GONE
+        }
+
+// BLE filter button
+        ui.bleFilterDBtn.setOnClickListener {
+            DeviceFilterSheet(
+                context = this,
+                currentFilter = activeBleFilter,
+                onFilterSelected = { type ->
+                    activeBleFilter = type
+                    when (type) {
+                        FilterType.SAVED -> ui.deviceAdapter.applyFilterType(type, saved = getSavedBleDevices())
+                        FilterType.NONE  -> ui.deviceAdapter.applyFilterType(type)
+                        else             -> ui.deviceAdapter.applyFilterType(type, bonded = getBondedBleAddresses())
+                    }
+                    if (ui.deviceAdapter.count == 0 && type != FilterType.NONE)
+                        Toast.makeText(this, "No Devices Found after Filtration.", Toast.LENGTH_SHORT).show()
+                    ui.bleClearFilterBtn.visibility = if (type != FilterType.NONE) View.VISIBLE else View.GONE
+                }
+            ).show()
+        }
+
+// Classic filter button
+        ui.classicFilterBtn.setOnClickListener {
+            DeviceFilterSheet(
+                context = this,
+                currentFilter = activeClassicFilter,
+                onFilterSelected = { type ->
+                    activeClassicFilter = type
+                    ui.classicAdapter.applyFilterType(type, bonded = getBondedClassicAddresses())
+                    if (ui.classicAdapter.count == 0 && type != FilterType.NONE)
+                        Toast.makeText(this, "No Devices Found after Filtration.", Toast.LENGTH_SHORT).show()
+                    ui.classicClearFilterBtn.visibility = if (type != FilterType.NONE) View.VISIBLE else View.GONE
+                }
+            ).show()
+        }
     }
 
     private fun checkPermissionsAndStartService() {
@@ -459,8 +514,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        classicDeviceList.clear()
-        classicDeviceMap.clear()
+        synchronized(classicDeviceList) {
+            classicDeviceList.clear()
+            classicDeviceMap.clear()
+        }
         ui.classicAdapter.notifyDataSetChanged()
 
         try {
@@ -468,14 +525,17 @@ class MainActivity : AppCompatActivity() {
                 adapter.bondedDevices?.forEach { device ->
                     val type = device.type
                     if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC && type != BluetoothDevice.DEVICE_TYPE_DUAL) return@forEach
-                    classicDeviceMap[device.address] = device
-                    classicDeviceList.add(
-                        ClassicDeviceItem(
-                            device.name ?: "Unknown",
-                            device.address,
-                            type
+                    
+                    synchronized(classicDeviceList) {
+                        classicDeviceMap[device.address] = device
+                        classicDeviceList.add(
+                            ClassicDeviceItem(
+                                device.name ?: "Unknown",
+                                device.address,
+                                type
+                            )
                         )
-                    )
+                    }
                 }
                 ui.classicAdapter.notifyDataSetChanged()
             }
@@ -526,6 +586,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ─── UI Helpers ──────────────────────────────────────────────────────────
+    private fun getSavedBleDevices(): List<BleDeviceItem> = try {
+        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) emptyList()
+        else bt.bondedDevices
+            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
+            ?.onEach { bleDeviceMap[it.address] = it }
+            ?.map { BleDeviceItem(try { it.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }, it.address, 0) }
+            ?: emptyList()
+    } catch (_: Exception) { emptyList() }
+
+    private fun getBondedBleAddresses(): Set<String> = try {
+        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) emptySet()
+        else bt.bondedDevices
+            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
+            ?.map { it.address }?.toSet() ?: emptySet()
+    } catch (_: Exception) { emptySet() }
+
+    private fun getBondedClassicAddresses(): Set<String> = try {
+        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) emptySet()
+        else bt.bondedDevices
+            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_CLASSIC || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
+            ?.map { it.address }?.toSet() ?: emptySet()
+    } catch (_: Exception) { emptySet() }
     override fun onDestroy() {
         super.onDestroy()
         delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }

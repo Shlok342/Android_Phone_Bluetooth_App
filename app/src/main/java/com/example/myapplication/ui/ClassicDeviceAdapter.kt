@@ -17,6 +17,7 @@ import com.example.myapplication.R
 import com.example.myapplication.models.ClassicDeviceItem
 import com.google.android.material.button.MaterialButton
 import com.example.myapplication.util.FavoriteStore
+import com.example.myapplication.models.FilterType
 import android.content.Context
 class ClassicDeviceAdapter(
     private val adapterContext: Context,
@@ -31,11 +32,22 @@ class ClassicDeviceAdapter(
     // ─── Filter ───────────────────────────────────────────────────────────────
     private var filterQuery = ""
     private var filterByMac = false
-
+    private var activeFilterType = FilterType.NONE
+    private var bondedAddresses: Set<String> = emptySet()
+    
     private fun displayList(): List<ClassicDeviceItem> {
-        if (filterQuery.isEmpty()) return devices
-        return if (filterByMac) devices.filter { it.address.contains(filterQuery, ignoreCase = true) }
-        else devices.filter {
+        val currentDevices = synchronized(devices) { devices.toList() }
+        val currentBonded = bondedAddresses.toSet()
+
+        val base = when (activeFilterType) {
+            FilterType.SAVED     -> currentDevices.filter { it.address in currentBonded }
+            FilterType.FAVORITES -> currentDevices.filter { FavoriteStore.isFavorite(adapterContext, it.address) }
+            FilterType.NEARBY    -> currentDevices.filter { it.address !in currentBonded }
+            FilterType.NONE      -> currentDevices
+        }
+        if (filterQuery.isEmpty()) return base
+        return if (filterByMac) base.filter { it.address.contains(filterQuery, ignoreCase = true) }
+        else base.filter {
             (DeviceNameStore.get(adapterContext, it.address) ?: it.name).contains(filterQuery, ignoreCase = true)
         }
     }
@@ -44,8 +56,14 @@ class ClassicDeviceAdapter(
         filterQuery = query; filterByMac = byMac; notifyDataSetChanged()
     }
 
+    fun applyFilterType(type: FilterType, bonded: Set<String>? = null) {
+        activeFilterType = type
+        if (bonded != null) bondedAddresses = bonded
+        notifyDataSetChanged()
+    }
+
     fun clearFilter() {
-        filterQuery = ""; filterByMac = false; notifyDataSetChanged()
+        filterQuery = ""; filterByMac = false; activeFilterType = FilterType.NONE; notifyDataSetChanged()
     }
     private fun updateStarButton(btn: ImageButton, isFavorite: Boolean) {
         if (isFavorite) {

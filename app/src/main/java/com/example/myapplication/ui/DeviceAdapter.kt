@@ -17,6 +17,7 @@ import com.example.myapplication.models.BleDeviceItem
 import com.google.android.material.button.MaterialButton
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.util.FavoriteStore
+import com.example.myapplication.models.FilterType
 import android.content.Context
 class DeviceAdapter(
     private val adapterContext: Context,
@@ -32,11 +33,25 @@ class DeviceAdapter(
     // ─── Filter ───────────────────────────────────────────────────────────────
     private var filterQuery = ""
     private var filterByMac = false
-
+    private var activeFilterType = FilterType.NONE
+    private var savedItems: List<BleDeviceItem> = emptyList()
+    private var bondedAddresses: Set<String> = emptySet()
+    
     private fun displayList(): List<BleDeviceItem> {
-        if (filterQuery.isEmpty()) return devices
-        return if (filterByMac) devices.filter { it.address.contains(filterQuery, ignoreCase = true) }
-        else devices.filter {
+        // Snapshots the current lists to avoid ConcurrentModificationException from background scan updates
+        val currentDevices = synchronized(devices) { devices.toList() }
+        val currentSaved = savedItems.toList()
+        val currentBonded = bondedAddresses.toSet()
+
+        val base = when (activeFilterType) {
+            FilterType.SAVED     -> currentSaved
+            FilterType.FAVORITES -> currentDevices.filter { FavoriteStore.isFavorite(adapterContext, it.address) }
+            FilterType.NEARBY    -> currentDevices.filter { it.address !in currentBonded }
+            FilterType.NONE      -> currentDevices
+        }
+        if (filterQuery.isEmpty()) return base
+        return if (filterByMac) base.filter { it.address.contains(filterQuery, ignoreCase = true) }
+        else base.filter {
             (DeviceNameStore.get(adapterContext, it.address) ?: it.name).contains(filterQuery, ignoreCase = true)
         }
     }
@@ -45,8 +60,15 @@ class DeviceAdapter(
         filterQuery = query; filterByMac = byMac; notifyDataSetChanged()
     }
 
+    fun applyFilterType(type: FilterType, saved: List<BleDeviceItem>? = null, bonded: Set<String>? = null) {
+        activeFilterType = type
+        if (saved != null) savedItems = saved
+        if (bonded != null) bondedAddresses = bonded
+        notifyDataSetChanged()
+    }
+
     fun clearFilter() {
-        filterQuery = ""; filterByMac = false; notifyDataSetChanged()
+        filterQuery = ""; filterByMac = false; activeFilterType = FilterType.NONE; notifyDataSetChanged()
     }
 
     override fun getItemId(p: Int) = p.toLong()

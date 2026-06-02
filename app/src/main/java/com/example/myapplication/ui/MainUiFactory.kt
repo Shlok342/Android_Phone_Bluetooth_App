@@ -31,7 +31,9 @@ data class UiComponents(
     val deviceAdapter: DeviceAdapter,
     val classicAdapter: ClassicDeviceAdapter,
     val bleClearFilterBtn: MaterialButton,
-    val classicClearFilterBtn: MaterialButton
+    val classicClearFilterBtn: MaterialButton,
+    val bleFilterDBtn: ImageButton,
+    val classicFilterBtn: ImageButton
 )
 
 object MainUiFactory {
@@ -103,12 +105,32 @@ object MainUiFactory {
                 visibility = View.GONE
             }
         }
+        val bleFilterDBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_filter)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity)).apply {
+                marginStart = 8.dp(activity)
+            }
+            contentDescription = "Filter devices"
+        }
+
+        val classicFilterBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_filter)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity)).apply {
+                marginStart = 8.dp(activity)
+            }
+            contentDescription = "Filter classic devices"
+        }
         val bleHeaderRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(24.dp(activity), 32.dp(activity), 24.dp(activity), 6.dp(activity))
             addView(bleHeaderText)
             addView(bleClearFilterBtn)
+            addView(bleFilterDBtn)
             addView(bleSearchBtn)
         }
 
@@ -150,7 +172,9 @@ object MainUiFactory {
             visibility = View.GONE
             addView(classicTextHeader)
             addView(classicClearFilterBtn)
+            addView(classicFilterBtn)   // ← add this line
             addView(classicSearchBtn)
+
         }
 
         bleSearchBtn.setOnClickListener {
@@ -375,7 +399,7 @@ object MainUiFactory {
             rootFrame, backgroundView, listView, classicListView, statusText,
             classicStatusText, bleHeaderText, classicTextHeader, bleTabBtn,
             classicTabBtn, classicActionsRow, transferStatusText, deviceAdapter, classicAdapter,
-            bleClearFilterBtn, classicClearFilterBtn
+            bleClearFilterBtn, classicClearFilterBtn, bleFilterDBtn, classicFilterBtn
         )
     }
 }
