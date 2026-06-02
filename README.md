@@ -29,6 +29,7 @@ but rarely both in a unified experience.
 OpenBlue Suite combines both technologies into a single application while providing powerful debugging and inspection tools that help developers understand what is happening behind the scenes.
 
 🚀 Core Features
+!IMPORTANT: This app does not yet support asynchronous connections for BLE and Classic Devices, architecture for that is under development. At present, BLE connections are disabled. 
 Bluetooth Discovery
 BLE Device Scanning
 Real-time BLE scanning
@@ -80,14 +81,16 @@ This makes Bluetooth debugging significantly easier compared to relying solely o
 🎨 Productivity Features
 Device Search
 
-Search devices using:
+1)Search devices using:
 
 Device Name
 MAC Address
 
 making it easier to locate devices in large scan results.
 
-Custom Device Names
+2)It now supports Filtering based on starred devices, nearby devices and saved devices. 
+
+3)Custom Device Names
 
 Assign your own aliases to devices.
 
@@ -165,7 +168,7 @@ A developer-friendly Bluetooth debugging tool
 A continuously improving open-source Bluetooth ecosystem
 
 📊 Future Implementation: 
-1) Adding filtering based on starring, saved devices and nearby devices.
+
 2) File Transfer Feature.
 3) Adding a base for printing.
 
