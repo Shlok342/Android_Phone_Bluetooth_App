@@ -28,7 +28,7 @@ class DeviceFilterSheet(
         }
 
         root.addView(TextView(ctx).apply {
-            text = "Filter Devices"
+            text = context.getString(R.string.filter_devices)
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
             setTextColor(ctx.getColor(R.color.color_text_primary))
@@ -74,7 +74,7 @@ class DeviceFilterSheet(
                 setBackgroundColor(ctx.getColor(R.color.color_glass_border))
             })
             root.addView(MaterialButton(ctx).apply {
-                text = "✕  Clear Filter"
+                text = context.getString(R.string.clear_filter)
                 textSize = 13f
                 isAllCaps = false
                 setTextColor(ctx.getColor(R.color.color_text_secondary))

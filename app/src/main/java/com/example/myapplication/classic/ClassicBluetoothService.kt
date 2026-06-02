@@ -58,7 +58,7 @@ class ClassicBluetoothService : Service() {
 
     @Suppress("SameParameterValue")
     private fun updateBluetoothForeground(statusText: String) {
-        // 1. Build the custom notification using your existing function
+
         val notification = buildNotification(statusText)
 
         // 2. Safely apply the correct startForeground format based on the OS version
@@ -75,6 +75,7 @@ class ClassicBluetoothService : Service() {
             )
         }
     }
+    //Unusdd until custom file transfer is implemented.
     private fun saveReceivedFile(filename: String, bytes: ByteArray) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -172,7 +173,7 @@ class ClassicBluetoothService : Service() {
             registerReceiver(a2dpReceiver, filter, RECEIVER_EXPORTED)
         } else {
             registerReceiver(a2dpReceiver, filter)
-        }// Best practice: call super first
+        }
         _audioProfileManager =
             ClassicAudioProfileManager(this)
         _connectionManager = ClassicConnectionManager(this)
@@ -198,7 +199,7 @@ class ClassicBluetoothService : Service() {
     }
 
     override fun onDestroy() {
-        // FIX: Cancel the scope to stop collecting flows and prevent memory leaks
+
         serviceScope.cancel()
         _audioProfileManager?.destroy()
         _audioProfileManager = null
@@ -217,12 +218,12 @@ class ClassicBluetoothService : Service() {
     // ─── Observe Manager ───────────────────────────────────
 
     private fun observeFlows() {
-        // FIX: Requires 'import kotlinx.coroutines.launch'
+
         serviceScope.launch {
             connectionManager.connectionInfo.collect { info ->
                 DeviceInsightManager.onAppEvent("Classic Connection: State=${info.state}, Device=${info.deviceName}")
                 if (info.state == ClassicState.CONNECTED) {
-                    // Logic to find device if possible, but let's at least log the address
+
                     DeviceInsightManager.onAppEvent("Classic: Device ${info.deviceName} (${info.address}) Connected")
                 }
                 updateNotification(
@@ -302,7 +303,7 @@ class ClassicBluetoothService : Service() {
         )
     }
 
-    // Added missing implementation
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             channelId,
@@ -315,7 +316,7 @@ class ClassicBluetoothService : Service() {
         manager?.createNotificationChannel(channel)
     }
 
-    // Added missing implementation
+
     private fun buildNotification(text: String): Notification {
         val pendingIntent = Intent(this, MainActivity::class.java).let { notificationIntent ->
             PendingIntent.getActivity(
@@ -329,7 +330,7 @@ class ClassicBluetoothService : Service() {
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("Classic Bluetooth")
             .setContentText(text)
-            // Replace with your app's actual drawable resource ID
+
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

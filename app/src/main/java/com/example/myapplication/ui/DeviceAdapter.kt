@@ -52,6 +52,7 @@ class DeviceAdapter(
         if (filterQuery.isEmpty()) return base
         return if (filterByMac) base.filter { it.address.contains(filterQuery, ignoreCase = true) }
         else base.filter {
+
             (DeviceNameStore.get(adapterContext, it.address) ?: it.name).contains(filterQuery, ignoreCase = true)
         }
     }
@@ -81,23 +82,56 @@ class DeviceAdapter(
             btn.setBackgroundResource(R.drawable.bg_star_btn)
         }
     }
+    private fun signalLabel(rssi: Int): String = when {
+        rssi >= -60 -> "Excellent"
+        rssi >= -70 -> "Strong"
+        rssi >= -80 -> "Good"
+        else -> "Weak"
+    }
+
+    private fun signalBars(rssi: Int): String = when {
+        rssi >= -60 -> "▰▰▰▰▰"
+        rssi >= -70 -> "▰▰▰▰▱"
+        rssi >= -80 -> "▰▰▰▱▱"
+        rssi >= -90 -> "▰▰▱▱▱"
+        else -> "▰▱▱▱▱"
+    }
     override fun getView(p: Int, v: View?, parent: ViewGroup): View {
 
         val view = v ?: LayoutInflater.from(parent.context)
             .inflate(R.layout.device_item, parent, false)
 
         val item = displayList()[p]
-
+        val card = view.findViewById<View>(R.id.deviceCard)
+        val indicator = view.findViewById<View>(R.id.deviceIndicator)
+        indicator.background.setTint(
+            when {
+                item.rssi >= -60 -> "#22C55E".toColorInt()
+                item.rssi >= -70 -> "#84CC16".toColorInt()
+                item.rssi >= -80 -> "#F59E0B".toColorInt()
+                else -> "#EF4444".toColorInt()
+            }
+        )
         val displayName = DeviceNameStore.get(parent.context, item.address) ?: item.name
         view.findViewById<TextView>(R.id.deviceName).text = displayName
 
         view.findViewById<TextView>(R.id.deviceAddress).text = item.address
 
-        view.findViewById<TextView>(R.id.deviceSignal).text =
-            view.context.getString(R.string.rssi, item.rssi)
+        val signalText = view.findViewById<TextView>(R.id.deviceSignal)
+
+        signalText.text =
+            "📶 ${signalBars(item.rssi)} • ${signalLabel(item.rssi)}"
+        signalText.setTextColor(
+            when {
+                item.rssi >= -60 -> "#22C55E".toColorInt()
+                item.rssi >= -70 -> "#84CC16".toColorInt()
+                item.rssi >= -80 -> "#F59E0B".toColorInt()
+                else -> "#EF4444".toColorInt()
+            }
+        )
 
         view.findViewById<MaterialButton>(R.id.connectBtn).apply {
-            isEnabled = false       // ADD THIS
+            isEnabled = false
             alpha = 0.4f
             isAllCaps = false
 
@@ -192,10 +226,30 @@ class DeviceAdapter(
             true
         }
         val starBtn = view.findViewById<ImageButton>(R.id.starBtn)
-        updateStarButton(starBtn, FavoriteStore.isFavorite(parent.context, item.address))
+        val isFavorite =
+            FavoriteStore.isFavorite(parent.context, item.address)
+
+        updateStarButton(starBtn, isFavorite)
+
+        card.setBackgroundResource(
+            if (isFavorite)
+                R.drawable.bg_glass_card_favourite
+            else
+                R.drawable.bg_glass_card
+        )
         starBtn.setOnClickListener {
-            val newState = FavoriteStore.toggle(parent.context, item.address)
+
+            val newState =
+                FavoriteStore.toggle(parent.context, item.address)
+
             updateStarButton(starBtn, newState)
+
+            card.setBackgroundResource(
+                if (newState)
+                    R.drawable.bg_glass_card_favourite
+                else
+                    R.drawable.bg_glass_card
+            )
         }
         return view
     }

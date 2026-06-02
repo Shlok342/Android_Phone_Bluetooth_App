@@ -55,7 +55,7 @@ class WriteQueue(
     @Volatile private var stopped = false
 
     fun start(outputStreamProvider: () -> OutputStream?) {
-        stopped = false   // ← ADD
+        stopped = false
         if (processorJob?.isActive == true) {
             log("start() ignored: processor already active")
             return
@@ -69,7 +69,7 @@ class WriteQueue(
     }
 
     fun stop() {
-        stopped = true    // ← ADD
+        stopped = true
         processorJob?.cancel()
         processorJob = null
         channel.close()

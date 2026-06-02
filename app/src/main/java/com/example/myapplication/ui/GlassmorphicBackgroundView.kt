@@ -19,9 +19,9 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    private val colorIdle       = "#7C3AED".toColorInt()
+    private val colorIdle       = "#8B5CF6".toColorInt()
     private val colorConnecting = "#D97706".toColorInt()
-    private val colorConnected  = "#059669".toColorInt()
+    private val colorConnected  = "#10B981".toColorInt()
     private val colorFailed     = "#DC2626".toColorInt()
     private val colorBg         = "#0D0E11".toColorInt()
 
@@ -47,9 +47,10 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
 
 
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val secondaryGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     // ── Breathing animator ─────────────────────────────────────────────────
-    private val breathingAnimator = ValueAnimator.ofFloat(0.25f, 0.44f).apply {
+    private val breathingAnimator = ValueAnimator.ofFloat(0.30f, 0.52f).apply {
         duration = 3400L
         repeatMode = ValueAnimator.REVERSE
         repeatCount = ValueAnimator.INFINITE
@@ -97,6 +98,23 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
 
     private fun transitionColor(newColor: Int) {
         if (newColor == targetColor) return
+        when (newColor) {
+            colorConnected -> {
+                breathingAnimator.duration = 5200L
+            }
+
+            colorConnecting -> {
+                breathingAnimator.duration = 2200L
+            }
+
+            colorFailed -> {
+                breathingAnimator.duration = 1800L
+            }
+
+            else -> {
+                breathingAnimator.duration = 3400L
+            }
+        }
         fromColor   = currentGlowColor
         targetColor = newColor
         if (colorAnimator.isRunning) colorAnimator.cancel()
@@ -116,7 +134,7 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
     }
 
     // ── Draw ──────────────────────────────────────────────────────────────
-    // 1. Preallocate your arrays and coordinates at the class level!
+
     private val gradientPositions = floatArrayOf(0f, 0.42f, 1f)
     private val gradientColors = IntArray(3)
 
@@ -124,19 +142,16 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
     private var cy = 0f
     private var radius = 0f
 
-    // 2. Move size calculations to onSizeChanged so they run ONLY when dimensions flip
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         cx = w * 0.50f
-        cy = h * 0.30f
+        cy = h * 0.25f
         radius = w * 0.70f
         updateGlowShader()
     }
 
-    // 3. Use custom setters to regenerate the shader ONLY when variables change
 
-
-    // 4. The isolated setup function
     private fun updateGlowShader() {
         // Safety check: don't build the shader if the view hasn't laid out yet
         if (radius <= 0f) return
@@ -151,11 +166,22 @@ class GlassmorphicBackgroundView @JvmOverloads constructor(
             gradientPositions,
             Shader.TileMode.CLAMP
         )
+        secondaryGlowPaint.shader = RadialGradient(
+            cx,
+            cy,
+            radius * 1.45f,
+            intArrayOf(
+                setAlpha(currentGlowColor, (glowAlpha * 90).toInt()),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
     }
 
-    // 5. Look how fast and lightweight this is now!
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        canvas.drawCircle(cx, cy, radius * 1.45f, secondaryGlowPaint)
         canvas.drawCircle(cx, cy, radius, glowPaint)
     }
 

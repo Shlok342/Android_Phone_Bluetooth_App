@@ -55,7 +55,6 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
             override fun getItemCount(): Int = 2
         }
 
-// ADD THIS BLOCK after setting the adapter:
 
 
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
@@ -84,7 +83,7 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val event = events[position]
-            // Use the view's own context directly
+
             val context = holder.text.context
 
             holder.text.text = context.getString(

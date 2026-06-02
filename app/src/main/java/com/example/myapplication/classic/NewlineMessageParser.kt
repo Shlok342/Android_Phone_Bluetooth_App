@@ -30,7 +30,7 @@ class NewlineMessageParser(
         var cursor = 0
 
         while (cursor < data.size) {
-            // Find next newline starting from cursor
+
             var newlineIndex = -1
             for (i in cursor until data.size) {
                 if (data[i] == '\n'.code.toByte()) { newlineIndex = i; break }

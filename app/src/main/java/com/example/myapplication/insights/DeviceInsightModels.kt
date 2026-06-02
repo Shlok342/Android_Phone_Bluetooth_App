@@ -1,4 +1,4 @@
-// FILE: app/src/main/java/com/example/myapplication/deviceinsights/model/DeviceInsightModels.kt
+
 
 package com.example.myapplication.insights
 

@@ -75,7 +75,7 @@ class ClassicAudioProfileManager(
         AtomicInteger(0)
 
     private var reconnectJob: Job? = null
-    // Replace resolveCodec entirely:
+
     @SuppressLint("DiscouragedPrivateApi")
     private fun resolveCodec(device: BluetoothDevice): String {
 
@@ -197,7 +197,7 @@ class ClassicAudioProfileManager(
         when (state) {
 
             BluetoothProfile.STATE_CONNECTED -> {
-                isIntentionalDisconnect = false  // ← add
+                isIntentionalDisconnect = false
                 reconnectAttempts.set(0)
                 connectedDevice = device
 
@@ -253,7 +253,7 @@ class ClassicAudioProfileManager(
     }
 
     private fun scheduleReconnect() {
-        if (isIntentionalDisconnect) return   // ← add this guard
+        if (isIntentionalDisconnect) return
         val device = connectedDevice ?: return
 
         if (reconnectAttempts.get() >= MAX_RECONNECT_ATTEMPTS) {

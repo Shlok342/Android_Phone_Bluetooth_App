@@ -8,7 +8,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-
+import android.view.Gravity
 import com.example.myapplication.R
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
@@ -32,7 +32,7 @@ data class UiComponents(
     val classicAdapter: ClassicDeviceAdapter,
     val bleClearFilterBtn: MaterialButton,
     val classicClearFilterBtn: MaterialButton,
-    val bleFilterDBtn: ImageButton,
+    val bleFilterDBtn: ImageButton,//D for devices, there was confusion while debugging.
     val classicFilterBtn: ImageButton
 )
 
@@ -90,7 +90,7 @@ object MainUiFactory {
             contentDescription = activity.getString(R.string.search_devices)
         }
         val bleClearFilterBtn = MaterialButton(activity).apply {
-            text = "Clear Filter"
+            text = activity.getString(R.string.clear_filter)
             textSize = 11f; letterSpacing = 0.03f
             setTextColor(activity.getColor(R.color.white))
             setBackgroundResource(R.drawable.bg_button_glass)
@@ -114,7 +114,32 @@ object MainUiFactory {
             }
             contentDescription = "Filter devices"
         }
+        val bleFeaturesBtn = MaterialButton(activity).apply {
+            text = activity.getString(R.string.features_button_txt)
+            textSize = 11f
+            letterSpacing = 0.03f
 
+            setTextColor(activity.getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+
+            stateListAnimator = null
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                32.dp(activity)
+            ).apply {
+                marginStart = 8.dp(activity)
+            }
+
+            setOnClickListener {
+                onFeatures()
+            }
+        }
         val classicFilterBtn = ImageButton(activity).apply {
             setImageResource(R.drawable.ic_filter)
             setBackgroundResource(R.drawable.bg_edit_pen)
@@ -124,6 +149,32 @@ object MainUiFactory {
             }
             contentDescription = "Filter classic devices"
         }
+        val classicFeaturesBtn = MaterialButton(activity).apply {
+            text = activity.getString(R.string.features_button_txt)
+            textSize = 11f
+            letterSpacing = 0.03f
+
+            setTextColor(activity.getColor(R.color.color_text_primary))
+            setBackgroundResource(R.drawable.bg_button_glass)
+
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+
+            stateListAnimator = null
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                32.dp(activity)
+            ).apply {
+                marginStart = 8.dp(activity)
+            }
+
+            setOnClickListener {
+                onFeatures()
+            }
+        }
         val bleHeaderRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -131,6 +182,7 @@ object MainUiFactory {
             addView(bleHeaderText)
             addView(bleClearFilterBtn)
             addView(bleFilterDBtn)
+            addView(bleFeaturesBtn)
             addView(bleSearchBtn)
         }
 
@@ -150,7 +202,7 @@ object MainUiFactory {
             contentDescription = activity.getString(R.string.search_devices)
         }
         val classicClearFilterBtn = MaterialButton(activity).apply {
-            text = "Clear Filter"
+            text = context.getString(R.string.clear_filter)
             textSize = 11f; letterSpacing = 0.03f
             setTextColor(activity.getColor(R.color.white))
             setBackgroundResource(R.drawable.bg_button_glass)
@@ -172,7 +224,8 @@ object MainUiFactory {
             visibility = View.GONE
             addView(classicTextHeader)
             addView(classicClearFilterBtn)
-            addView(classicFilterBtn)   // ← add this line
+            addView(classicFilterBtn)
+            addView(classicFeaturesBtn)
             addView(classicSearchBtn)
 
         }
@@ -221,43 +274,48 @@ object MainUiFactory {
 
         val refreshBtn = MaterialButton(activity).apply {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            gravity = Gravity.CENTER
             text = activity.getString(R.string.refresh)
-            textSize = 12f
+            textSize = 13f
             letterSpacing = 0.04f
             setTextColor(activity.getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
-            setPadding(18.dp(activity), 0, 18.dp(activity), 0)
+            setPadding(24.dp(activity), 0, 24.dp(activity), 0)
             stateListAnimator = null
             setOnClickListener { onRefresh() }
         }
 
         val stopBtn = MaterialButton(activity).apply {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            gravity = Gravity.CENTER
             text = activity.getString(R.string.stop_scan)
-            textSize = 12f
+            textSize = 13f
             letterSpacing = 0.04f
             setTextColor(activity.getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
-            setPadding(18.dp(activity), 0, 18.dp(activity), 0)
+            setPadding(24.dp(activity), 0, 24.dp(activity), 0)
             stateListAnimator = null
             setOnClickListener { onStopScan() }
         }
 
         val disconnectBtn = MaterialButton(activity).apply {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            gravity = Gravity.CENTER
             text = activity.getString(R.string.disconnect)
-            textSize = 12f
+            textSize = 13f
             letterSpacing = 0.04f
             setTextColor(activity.getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_button_glass)
-            setPadding(18.dp(activity), 0, 18.dp(activity), 0)
+            setPadding(24.dp(activity), 0, 24.dp(activity), 0)
             stateListAnimator = null
             setOnClickListener { onDisconnect() }
         }
 
-        btnRow.addView(refreshBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = 6.dp(activity) })
-        btnRow.addView(stopBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = 6.dp(activity) })
-        btnRow.addView(disconnectBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        btnRow.addView(refreshBtn, LinearLayout.LayoutParams(0, 48.dp(activity), 1f).apply { marginEnd = 6.dp(activity) })
+
+        btnRow.addView(stopBtn, LinearLayout.LayoutParams(0, 48.dp(activity), 1f).apply { marginEnd = 6.dp(activity) })
+
+        btnRow.addView(disconnectBtn, LinearLayout.LayoutParams(0, 48.dp(activity), 1f))
         layout.addView(btnRow)
 
         val bleTabBtn = MaterialButton(activity).apply {
@@ -267,6 +325,8 @@ object MainUiFactory {
             setTextColor(activity.getColor(R.color.color_text_primary))
             setBackgroundResource(R.drawable.bg_tab_selected)
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            height = 42.dp(activity)
+            textSize = 12f
             insetTop = 0; insetBottom = 0
             setPadding(0, 0, 0, 0)
             stateListAnimator = null
@@ -279,6 +339,8 @@ object MainUiFactory {
             setTextColor(activity.getColor(R.color.color_text_secondary))
             setBackgroundResource(R.drawable.bg_tab_unselected)
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            height = 42.dp(activity)
+            textSize = 12f
             insetTop = 0; insetBottom = 0
             setPadding(0, 0, 0, 0)
             stateListAnimator = null
@@ -293,8 +355,15 @@ object MainUiFactory {
                 setMargins(16.dp(activity), 0, 16.dp(activity), 14.dp(activity))
             }
         }
-        tabRow.addView(bleTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
-        tabRow.addView(classicTabBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        tabRow.addView(
+            bleTabBtn,
+            LinearLayout.LayoutParams(0, 42.dp(activity), 1f)
+        )
+
+        tabRow.addView(
+            classicTabBtn,
+            LinearLayout.LayoutParams(0, 42.dp(activity), 1f)
+        )
         layout.addView(tabRow)
 
         val classicStatusText = TextView(activity).apply {
@@ -318,20 +387,6 @@ object MainUiFactory {
             ).apply { setMargins(16.dp(activity), 0, 16.dp(activity), 8.dp(activity)) }
             visibility = View.GONE
         }
-
-        val featuresBtn = MaterialButton(activity).apply {
-            text = activity.getString(R.string.features_button_txt)
-            textSize = 12f
-            letterSpacing = 0.04f
-            setTextColor(activity.getColor(R.color.color_text_primary))
-            setBackgroundResource(R.drawable.bg_button_glass)
-            setPadding(18.dp(activity), 0, 18.dp(activity), 0)
-            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
-            stateListAnimator = null
-            setOnClickListener { onFeatures() }
-        }
-        classicActionsRow.addView(featuresBtn, LinearLayout.LayoutParams(0, -2, 1f))
-
         val transferStatusText = TextView(activity).apply {
             textSize = 12f
             setTextColor(activity.getColor(R.color.color_text_secondary))
@@ -340,7 +395,7 @@ object MainUiFactory {
         }
 
         layout.addView(classicStatusText)
-        layout.addView(classicActionsRow)
+
         layout.addView(transferStatusText)
         layout.addView(listView, LinearLayout.LayoutParams(-1, 0, 1f))
         layout.addView(classicListView, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -357,7 +412,7 @@ object MainUiFactory {
             listView.visibility = View.VISIBLE
             classicStatusText.visibility = View.GONE
             classicListView.visibility = View.GONE
-            classicActionsRow.visibility = View.GONE
+
             transferStatusText.visibility = View.GONE
         }
 
@@ -373,7 +428,7 @@ object MainUiFactory {
             listView.visibility = View.GONE
             classicStatusText.visibility = View.VISIBLE
             classicListView.visibility = View.VISIBLE
-            classicActionsRow.visibility = View.VISIBLE
+
         }
 
         val rootFrame = FrameLayout(activity)

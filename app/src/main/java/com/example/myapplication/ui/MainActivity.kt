@@ -303,8 +303,8 @@ class MainActivity : AppCompatActivity() {
                 this.startClassicScan()
             },
             onFeatures = {
-                DeviceInsightManager.onAppEvent("UI: Launching Features Sheet")
-                classicUiController.showClassicFeaturesSheet()
+                DeviceInsightManager.onAppEvent("UI: Launching Features Sheet from $activeTab tab")
+                classicUiController.showFeaturesSheet()
             },
             connectBleCallback = { device ->
                 DeviceInsightManager.onAppEvent("UI: Connecting to BLE device ${device.address}")

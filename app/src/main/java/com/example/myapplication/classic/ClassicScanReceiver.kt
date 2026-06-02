@@ -39,14 +39,14 @@ class ClassicScanReceiver(
                     BluetoothDevice.DEVICE_TYPE_LE -> {
 
                         // Some phones temporarily report LE before Android resolves properly.
-                        // If bluetoothClass exists, keep it.
+
                         device.bluetoothClass != null
                     }
 
                     BluetoothDevice.DEVICE_TYPE_UNKNOWN -> {
 
                         // UNKNOWN during discovery is extremely common on Android.
-                        // If bluetoothClass exists, it is usually a real Classic-capable device.
+
                         device.bluetoothClass != null
                     }
 
@@ -183,7 +183,7 @@ class ClassicScanReceiver(
 
                         when (bondState) {
                             BluetoothDevice.BOND_BONDED -> {
-                                // Refresh list entry — it might now show a real name
+
                                 val idx = classicDeviceList.indexOfFirst { it.address == address }
                                 if (idx != -1) {
                                     val name = try { device.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }

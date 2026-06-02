@@ -60,4 +60,8 @@
     <string name="search_hint_name">Filter by device name…</string>
     <string name="search_hint_mac">Enter MAC address…</string>
     <string name="search_button_label">Search</string>
+    <string name="connect_unavailable">Unavailable</string>
+    <string name="signal_bar_rssi">📶 %1$s • %2$s</string>
+    <string name="clear_filter">Clear Filter</string>
+    <string name="filter_devices">Filter Devices</string>
 </resources>

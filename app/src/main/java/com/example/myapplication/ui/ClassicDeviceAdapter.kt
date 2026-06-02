@@ -34,6 +34,7 @@ class ClassicDeviceAdapter(
     private var filterByMac = false
     private var activeFilterType = FilterType.NONE
     private var bondedAddresses: Set<String> = emptySet()
+
     
     private fun displayList(): List<ClassicDeviceItem> {
         val currentDevices = synchronized(devices) { devices.toList() }
@@ -74,16 +75,39 @@ class ClassicDeviceAdapter(
             btn.setBackgroundResource(R.drawable.bg_star_btn)
         }
     }
+    private fun classicTypeLabel(type: Int): String = when (type) {
+        BluetoothDevice.DEVICE_TYPE_DUAL -> "🔄 Dual Mode"
+        BluetoothDevice.DEVICE_TYPE_CLASSIC -> "📡 Classic"
+        else -> "📶 Bluetooth"
+    }
+
     override fun getView(p: Int, v: View?, parent: ViewGroup): View {
         val view = v ?: LayoutInflater.from(parent.context).inflate(R.layout.device_item, parent, false)
         val item = displayList()[p]
+        val card = view.findViewById<View>(R.id.deviceCard)
+        val indicator = view.findViewById<View>(R.id.deviceIndicator)
         val displayName = DeviceNameStore.get(parent.context, item.address) ?: item.name
         view.findViewById<TextView>(R.id.deviceName).text = displayName
         view.findViewById<TextView>(R.id.deviceAddress).text = item.address
-        view.findViewById<TextView>(R.id.deviceSignal).text =
-            if (item.type == BluetoothDevice.DEVICE_TYPE_DUAL) "Dual (Classic+BLE)" else "Classic"
+        val signalText = view.findViewById<TextView>(R.id.deviceSignal)
+
+        signalText.text = classicTypeLabel(item.type)
+        signalText.setTextColor(
+            when (item.type) {
+                BluetoothDevice.DEVICE_TYPE_DUAL -> "#22C55E".toColorInt()
+                BluetoothDevice.DEVICE_TYPE_CLASSIC -> "#60A5FA".toColorInt()
+                else -> "#A78BFA".toColorInt()
+            }
+        )
+        indicator.background.setTint(
+            when (item.type) {
+                BluetoothDevice.DEVICE_TYPE_DUAL -> "#22C55E".toColorInt()
+                BluetoothDevice.DEVICE_TYPE_CLASSIC -> "#60A5FA".toColorInt()
+                else -> "#A78BFA".toColorInt()
+            }
+        )
         view.findViewById<Button>(R.id.connectBtn).apply {
-                       // ADD THIS
+
             isAllCaps = false
             setOnClickListener {
                 deviceMap[item.address]?.let { connectCallback(it) }
@@ -153,10 +177,24 @@ class ClassicDeviceAdapter(
             }
         }
         val starBtn = view.findViewById<ImageButton>(R.id.starBtn)
-        updateStarButton(starBtn, FavoriteStore.isFavorite(parent.context, item.address))
+        val isFavorite =
+            FavoriteStore.isFavorite(parent.context, item.address)
+
+        card.setBackgroundResource(
+            if (isFavorite)
+                R.drawable.bg_glass_card_favourite
+            else
+                R.drawable.bg_glass_card
+        )
+        updateStarButton(starBtn, isFavorite)
         starBtn.setOnClickListener {
             val newState = FavoriteStore.toggle(parent.context, item.address)
-            updateStarButton(starBtn, newState)
+            card.setBackgroundResource(
+                if (newState)
+                    R.drawable.bg_glass_card_favourite
+                else
+                    R.drawable.bg_glass_card
+            )
         }
         return view
     }

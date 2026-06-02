@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.R
@@ -89,14 +90,26 @@ class ClassicUiController (
             is FileTransferState.Cancelled -> transferStatusText.text = activity.getString(R.string.transfer_cancelled)
         }
     }
-    fun showClassicFeaturesSheet() {
+    fun showFeaturesSheet() {
         val sheet = BottomSheetDialog(activity)
         val container = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 28, 32, 40) }
         val title = TextView(activity).apply { text = activity.getString(R.string.features); textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(activity.getColor(
             R.color.color_text_primary)); setPadding(0, 0, 0, 20.dp(activity)) }
         container.addView(title)
         val sendFileBtn = MaterialButton(activity).apply { text = activity.getString(R.string.send_file); textSize = 13f; letterSpacing = 0.03f; setTextColor(activity.getColor(
-            R.color.color_text_primary)); setBackgroundResource(R.drawable.bg_button_glass); stateListAnimator = null; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10.dp(activity) }; setOnClickListener { sheet.dismiss(); if (isClassicConnected()) onSendFile() } }
+            R.color.color_text_primary)); setBackgroundResource(R.drawable.bg_button_glass); stateListAnimator = null; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10.dp(activity) }; setOnClickListener {
+            sheet.dismiss()
+
+            if (isClassicConnected()) {
+                onSendFile()
+            } else {
+                Toast.makeText(
+                    activity,
+                    "File transfer currently requires a Classic Bluetooth connection",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }}
         container.addView(sendFileBtn)
         val insightsBtn = MaterialButton(activity).apply {
             text = context.getString(R.string.procedural_insights_button)
@@ -157,7 +170,7 @@ class ClassicUiController (
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             stateListAnimator = null
             setPadding(16.dp(activity), 0, 16.dp(activity), 0)
-            setOnClickListener { sheet.dismiss(); showClassicFeaturesSheet() }
+            setOnClickListener { sheet.dismiss(); showFeaturesSheet() }
         }
         headerRow.addView(title)
         headerRow.addView(clearBtn)
@@ -197,7 +210,7 @@ class ClassicUiController (
                         setTextColor(activity.getColor(R.color.color_text_secondary))
                         setPadding(0, 7.dp(activity), 0, 7.dp(activity))
                     })
-                    // subtle separator
+
                     eventList.addView(View(activity).apply {
                         layoutParams = LinearLayout.LayoutParams(-1, 1)
                         setBackgroundColor(0x0DFFFFFF)

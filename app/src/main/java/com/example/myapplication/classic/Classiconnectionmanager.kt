@@ -80,7 +80,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     )
     val events: SharedFlow<String> = _events.asSharedFlow()
     // ─── Raw bytes (used by FileTransferManager) ────────────────────────
-    // ─── Raw byte stream (consumed by ClassicFileTransferManager) ──────────
+
     private val _rawBytes = MutableSharedFlow<ByteArray>(
         replay = 0,
         extraBufferCapacity = 64,
@@ -116,7 +116,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         onLogEvent = ::logEvent,
         onDoConnect = ::doConnect
     )
-    val reconnectAttempts: Int get() = reconnectScheduler.reconnectAttempts
+
     private var connectJob:           Job? = null
     private var readJob:              Job? = null
     private var connectionTimeoutJob: Job? = null
@@ -314,7 +314,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── Send with Write Timeout ───────────────────────────
-    // Change return type from Unit to Boolean:
+
     fun sendData(data: ByteArray, onResult: ((WriteQueue.WriteResult) -> Unit)? = null): Boolean {
         return writeQueue?.enqueue(data, onResult) ?: false
     }

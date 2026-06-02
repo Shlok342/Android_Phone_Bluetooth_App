@@ -6,23 +6,26 @@
     android:layout_height="wrap_content"
     android:paddingStart="12dp"
     android:paddingEnd="12dp"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
     <LinearLayout
         android:orientation="horizontal"
+        android:id="@+id/deviceCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/bg_glass_card"
+
+        android:elevation="3dp"
         android:padding="12dp"
         android:gravity="center_vertical">
 
         <View
             android:id="@+id/deviceIndicator"
-            android:layout_width="7dp"
-            android:layout_height="7dp"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
             android:background="@drawable/bg_indicator_dot"
-            android:layout_marginEnd="10dp"/>
+            android:layout_marginEnd="10dp" />
 
         <LinearLayout
             android:orientation="vertical"
@@ -38,7 +41,7 @@
                 android:textColor="@color/color_text_primary"
                 android:letterSpacing="0.01"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content" />
 
             <TextView
                 android:id="@+id/deviceAddress"
@@ -49,47 +52,37 @@
                 android:letterSpacing="0.04"
                 android:layout_marginTop="2dp"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content" />
 
             <TextView
                 android:id="@+id/deviceSignal"
                 android:text="@string/device_signal"
-                android:textSize="10sp"
-                android:fontFamily="sans-serif-light"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
                 android:textColor="@color/color_text_tertiary"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="3dp"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content" />
         </LinearLayout>
 
         <Button
-
             android:id="@+id/connectBtn"
             android:layout_width="wrap_content"
             android:layout_height="48dp"
-
             android:minHeight="0dp"
             android:minWidth="0dp"
-
             android:text="@string/connect"
             android:textAllCaps="false"
-
             android:textColor="@color/color_text_primary"
             android:textSize="11sp"
-
             android:fontFamily="sans-serif-medium"
             android:letterSpacing="0.03"
-
             android:background="@drawable/bg_connect_btn"
-
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-
             android:insetTop="0dp"
             android:insetBottom="0dp"
-
-            android:stateListAnimator="@null"/>
-        <!-- existing connectBtn above this -->
+            android:stateListAnimator="@null" />
 
         <ImageButton
             android:id="@+id/editNameBtn"
@@ -101,7 +94,8 @@
             android:padding="6dp"
             android:scaleType="fitCenter"
             android:contentDescription="@string/edit_device_name"
-            android:stateListAnimator="@null"/>
+            android:stateListAnimator="@null" />
+
         <ImageButton
             android:id="@+id/starBtn"
             android:layout_width="32dp"
@@ -112,6 +106,6 @@
             android:padding="5dp"
             android:scaleType="fitCenter"
             android:contentDescription="@string/favorite_device"
-            android:stateListAnimator="@null"/>
+            android:stateListAnimator="@null" />
     </LinearLayout>
 </LinearLayout>
