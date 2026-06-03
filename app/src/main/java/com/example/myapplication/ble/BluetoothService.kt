@@ -321,6 +321,22 @@ class BluetoothService : Service() {
             gattOperationComplete()
         }
 
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            val uuid = characteristic.uuid.toString()
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Write OK: $uuid")
+                _messages.tryEmit("[Write OK] $uuid")
+            } else {
+                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Write Failed: $uuid (status $status)")
+                _messages.tryEmit("[Write Failed] $uuid (status $status)")
+            }
+            gattOperationComplete()
+        }
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             val uuid = characteristic.uuid.toString().lowercase()
             
@@ -488,7 +504,52 @@ class BluetoothService : Service() {
             isDisconnecting = false
         }, 500)
     }
+    /**
+     * Queues a write to [uuid]. Auto-selects WRITE vs WRITE_NO_RESPONSE from
+     * the characteristic's declared properties. Returns false if the
+     * characteristic is not found or the connection isn't READY.
+     */
+    fun writeCharacteristic(uuid: String, value: ByteArray): Boolean {
+        val gatt = bluetoothGatt ?: return false
+        if (currentState != BleState.READY) return false
 
+        val characteristic = gatt.services
+            ?.flatMap { it.characteristics }
+            ?.firstOrNull { it.uuid.toString().equals(uuid, ignoreCase = true) }
+            ?: return false
+
+        val writeType = when {
+            characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ->
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 ->
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            else -> return false
+        }
+        val noAck = writeType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+
+        enqueue {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeCharacteristic(characteristic, value, writeType)
+                } else {
+                    @Suppress("DEPRECATION")
+                    characteristic.value = value
+                    @Suppress("DEPRECATION")
+                    characteristic.writeType = writeType
+                    @Suppress("DEPRECATION")
+                    gatt.writeCharacteristic(characteristic)
+                }
+                // WRITE_NO_RESPONSE never fires onCharacteristicWrite, so drain the queue now
+                if (noAck) {
+                    _messages.tryEmit("[Write] ${characteristic.uuid} (no-ack)")
+                    gattOperationComplete()
+                }
+            } catch (_: SecurityException) {
+                gattOperationComplete()
+            }
+        }
+        return true
+    }
     private fun disconnectInternal() {
         cancelTimeout()
         synchronized(gattQueue) { gattQueue.clear() }

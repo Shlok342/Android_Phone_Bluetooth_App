@@ -588,6 +588,7 @@ class MainActivity : AppCompatActivity() {
             ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         }
         bluetoothService?.connect(device)
+
     }
 
     // ─── UI Helpers ──────────────────────────────────────────────────────────
