@@ -299,14 +299,12 @@ class MainActivity : AppCompatActivity() {
                 DeviceInsightManager.onAppEvent("UI: Switched to BLE tab")
                 activeTab = ActiveTab.BLE
                 SystemTimeline.log("📑 Switched to BLE tab")
-                stopClassicScan()
                 if (!bleScanManager.isScanning) bleScanManager.start()
             },
             onTabClassic = {
                 DeviceInsightManager.onAppEvent("UI: Switched to Classic tab")
                 activeTab = ActiveTab.CLASSIC
                 SystemTimeline.log("📑 Switched to Classic tab")
-                bleScanManager.stop()
                 this.startClassicScan()
             },
             onFeatures = {

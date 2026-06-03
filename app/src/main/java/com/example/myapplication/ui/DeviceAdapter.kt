@@ -131,8 +131,6 @@ class DeviceAdapter(
         )
 
         view.findViewById<MaterialButton>(R.id.connectBtn).apply {
-            isEnabled = false
-            alpha = 0.4f
             isAllCaps = false
 
             val addressLine = item.address
