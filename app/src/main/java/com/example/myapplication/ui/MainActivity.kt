@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private var activeClassicFilter = FilterType.NONE
     private var serviceStarted = false
     private var classicServiceStarted = false
+    private var bleCollectorJob: Job? = null
 
     // ─── Bottom Sheet for Live Data ───────────────────────────────────────────
     private var bottomSheetDialog: BottomSheetDialog? = null
@@ -120,7 +121,8 @@ class MainActivity : AppCompatActivity() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            bluetoothService = (binder as BluetoothService.LocalBinder).getService()
+            val service = (binder as BluetoothService.LocalBinder).getService()
+            bluetoothService = service
             isBound = true
 
             // Add a small delay to ensure the UI is fully stable before the first scan results arrive
@@ -128,28 +130,33 @@ class MainActivity : AppCompatActivity() {
                 if (!bleScanManager.isScanning) bleScanManager.start()
             }, 200)
 
-            bluetoothService?.onStateChanged = { state, address ->
-                runOnUiThread {
-                    bleUiController.updateStatusUi(state, address)
-                    when (state) {
-                        BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${bluetoothService?.connectedDeviceName ?: address}")
-                        BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${bluetoothService?.connectedDeviceName ?: address}")
-                        BleState.DISCONNECTED  -> SystemTimeline.log("🔇 BLE disconnected")
-                        BleState.FAILED        -> SystemTimeline.log("❌ BLE connection failed")
-                        BleState.BONDING       -> SystemTimeline.log("🔐 BLE bonding...")
-                        else -> {}
+            bleCollectorJob = lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        service.connectionInfo.collect { info ->
+                            bleUiController.updateStatusUi(info.state, info.address)
+                            when (info.state) {
+                                BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${service.connectedDeviceName ?: info.address}")
+                                BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${service.connectedDeviceName ?: info.address}")
+                                BleState.DISCONNECTED  -> SystemTimeline.log("🔇 BLE disconnected")
+                                BleState.FAILED        -> SystemTimeline.log("❌ BLE connection failed")
+                                BleState.BONDING       -> SystemTimeline.log("🔐 BLE bonding...")
+                                else -> {}
+                            }
+                        }
+                    }
+                    launch {
+                        service.messages.collect { data ->
+                            bleUiController.showDataBottomSheet(data)
+                        }
                     }
                 }
             }
-
-            bluetoothService?.onDataReceived = { data ->
-                runOnUiThread { bleUiController.showDataBottomSheet(data) }
-            }
-
-            bluetoothService?.let { bleUiController.updateStatusUi(it.currentState, it.connectedDeviceAddress ?: "") }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
+            bleCollectorJob?.cancel()
+            bleCollectorJob = null
             bluetoothService = null
             isBound = false
         }
@@ -622,6 +629,7 @@ class MainActivity : AppCompatActivity() {
         delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
         try { unregisterReceiver(classicScanReceiver) } catch (_: Exception) {}
         classicCollectorJob?.cancel()
+        bleCollectorJob?.cancel()
         bleScanManager.stop()
         if (isBound) { unbindService(serviceConnection); isBound = false }
         if (isClassicBound) { unbindService(classicConnection); isClassicBound = false }

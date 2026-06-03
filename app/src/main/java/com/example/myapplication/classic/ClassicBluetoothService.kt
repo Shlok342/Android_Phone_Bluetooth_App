@@ -170,7 +170,7 @@ class ClassicBluetoothService : Service() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(a2dpReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(a2dpReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(a2dpReceiver, filter)
         }

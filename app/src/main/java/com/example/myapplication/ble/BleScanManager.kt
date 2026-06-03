@@ -28,12 +28,11 @@ class BleScanManager(
 
 
 
+
     private val bluetoothAdapter by lazy {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     }
-    private val scanner by lazy {
-        bluetoothAdapter.bluetoothLeScanner
-    }
+
     private val scanHandler = Handler(Looper.getMainLooper())
     private val scanTimeoutRunnable = Runnable {
         Log.d("BLE_SCAN", "AUTO STOPPING SCAN")
@@ -46,6 +45,8 @@ class BleScanManager(
     )
 
     fun start() {
+
+
         DeviceInsightManager.onAppEvent("BLE: Scan Started")
         val now = System.currentTimeMillis()
 
@@ -97,8 +98,11 @@ class BleScanManager(
 
             Log.d("BLE_SCAN", "STARTING SCAN SESSION")
 
-            scanner.startScan(null, settings, scanCallback)
-
+            val scanner = bluetoothAdapter.bluetoothLeScanner ?: run {
+                isScanning = false
+                return
+            }
+            scanner.startScan(emptyList(), settings, scanCallback)
             isScanning = true
             lastScanStartTime = now
 
@@ -123,7 +127,7 @@ class BleScanManager(
 
         try {
 
-            scanner.stopScan(scanCallback)
+            bluetoothAdapter.bluetoothLeScanner?.stopScan(scanCallback)
             SystemTimeline.log("⏹ BLE scan stopped")
             scanHandler.removeCallbacks(scanTimeoutRunnable)
             isScanning = false

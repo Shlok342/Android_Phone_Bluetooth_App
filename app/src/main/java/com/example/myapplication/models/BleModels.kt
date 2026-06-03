@@ -23,6 +23,11 @@ enum class FilterType {
     NONE, SAVED, FAVORITES, NEARBY
 }
 
+data class BleConnectionInfo(
+    val state: com.example.myapplication.ble.BleState,
+    val address: String
+)
+
 fun Int.dp(context: Context): Int {
     return (this * context.resources.displayMetrics.density).toInt()
 }

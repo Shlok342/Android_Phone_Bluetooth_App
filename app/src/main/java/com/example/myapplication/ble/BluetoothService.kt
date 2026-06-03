@@ -12,8 +12,19 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import com.example.myapplication.insights.DeviceInsightManager
+import com.example.myapplication.models.BleConnectionInfo
 import java.util.UUID
 import com.example.myapplication.util.BluetoothPermissionUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
 enum class BleState {
     IDLE,
     CONNECTING,
@@ -33,21 +44,33 @@ class BluetoothService : Service() {
     private val binder = LocalBinder()
     override fun onBind(intent: Intent): IBinder = binder
 
+    // ─── Coroutines ──────────────────────────────────────────────────────────
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private val _connectionInfo = MutableStateFlow(BleConnectionInfo(BleState.IDLE, ""))
+    val connectionInfo: StateFlow<BleConnectionInfo> = _connectionInfo.asStateFlow()
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
+
     // ─── State ────────────────────────────────────────────────────────────────
     private var bluetoothGatt: BluetoothGatt? = null
     @Volatile private var isDisconnecting = false
-    
+    private var lastConnectedDevice: BluetoothDevice? = null
+    private var gatt133Attempts = 0
+    private val MAX133RETRIES = 3
     var currentState = BleState.IDLE
         private set(value) {
             field = value
-            onStateChanged?.invoke(value, connectedDeviceAddress ?: "")
+            _connectionInfo.value = BleConnectionInfo(value, connectedDeviceAddress ?: "")
         }
 
     var connectedDeviceAddress: String? = null
+        set(value) {
+            field = value
+            _connectionInfo.value = BleConnectionInfo(currentState, value ?: "")
+        }
     var connectedDeviceName: String? = null
-    
-    var onStateChanged: ((BleState, String) -> Unit)? = null
-    var onDataReceived: ((String) -> Unit)? = null
 
     private lateinit var bleNotificationManager: BleNotificationManager
     private val subscribedCharacteristics = mutableSetOf<String>()
@@ -114,51 +137,65 @@ class BluetoothService : Service() {
 
     // ─── GATT Operation Queue ─────────────────────────────────────────────────
     private val gattQueue = ArrayDeque<() -> Unit>()
-    @Volatile private var isGattBusy = false
+
+    private val isGattBusy = AtomicBoolean(false)
 
     private fun enqueue(operation: () -> Unit) {
-        val shouldProcess = synchronized(gattQueue) {
-            gattQueue.addLast(operation)
-            !isGattBusy
-        }
-        if (shouldProcess) processNextGattOperation()
+        synchronized(gattQueue) { gattQueue.addLast(operation) }
+        if (!isGattBusy.get()) processNextGattOperation()
     }
 
     private fun processNextGattOperation() {
+        if (!isGattBusy.compareAndSet(false, true)) return
         val next = synchronized(gattQueue) {
-            if (isGattBusy) return
-            if (gattQueue.isEmpty()) return
-            isGattBusy = true
+            if (gattQueue.isEmpty()) { isGattBusy.set(false); return }
             gattQueue.removeFirst()
         }
         next.invoke()
     }
 
     private fun gattOperationComplete() {
-        synchronized(gattQueue) { isGattBusy = false }
+        isGattBusy.set(false)
         processNextGattOperation()
     }
 
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     
     // ─── GATT Callback ────────────────────────────────────────────────────────
-    private val gattCallback = object : BluetoothGattCallback() {
+    private val gattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             val address = gatt.device.address
             DeviceInsightManager.onAppEvent("BLE GATT: Connection state changed. Status: $status, NewState: $newState")
-            
+
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                bleNotificationManager.updateNotification("Connection failed (status $status)")
-                cleanUp()
-                try { bluetoothGatt?.close() } catch (_: SecurityException) {}
+                try { gatt.close() } catch (_: SecurityException) {}
                 bluetoothGatt = null
+                if (status == 133 && gatt133Attempts < MAX133RETRIES && !isDisconnecting) {
+                    gatt133Attempts++
+                    val delay = when (gatt133Attempts) { 1 -> 600L; 2 -> 1000L; else -> 1500L }
+                    bleNotificationManager.updateNotification("GATT error 133, retrying ($gatt133Attempts/$MAX133RETRIES)...")
+                    currentState = BleState.CONNECTING
+                    val device = lastConnectedDevice ?: run { currentState = BleState.FAILED; return }
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        if (!isDisconnecting && currentState == BleState.CONNECTING) {
+                            try {
+                                bluetoothGatt = device.connectGatt(this@BluetoothService, false,
+                                    gattCallback, BluetoothDevice.TRANSPORT_LE)
+                            } catch (_: SecurityException) { currentState = BleState.FAILED }
+                        }
+                    }, delay)
+                    return
+                }
+                cleanUp()
+                bleNotificationManager.updateNotification("Connection failed (status $status)")
                 currentState = BleState.FAILED
                 return
             }
 
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    gatt133Attempts = 0
                     DeviceInsightManager.onDeviceConnected(gatt.device, "BLE", this@BluetoothService)
                     DeviceInsightManager.addDeviceEvent(address, "GATT Layer Connected")
 
@@ -230,10 +267,12 @@ class BluetoothService : Service() {
             }
 
             bleNotificationManager.updateNotification("Setting up characteristics...")
+            enqueue {
+                try { gatt.requestMtu(512) } catch (_: SecurityException) { gattOperationComplete() }
+            }
             setupCharacteristics(gatt)
             currentState = BleState.READY
             bleNotificationManager.updateNotification("Ready: $connectedDeviceName")
-            try { gatt.requestMtu(512) } catch (_: SecurityException) {}
             try { gatt.readRemoteRssi() } catch (_: SecurityException) {}
         }
 
@@ -242,7 +281,7 @@ class BluetoothService : Service() {
                 DeviceInsightManager.addDeviceEvent(gatt.device.address, "Read Characteristic: ${characteristic.uuid}")
                 val hex = value.joinToString(" ") { "%02X".format(it) }
                 val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
-                onDataReceived?.invoke("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
+                _messages.tryEmit("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
             }
             gattOperationComplete()
         }
@@ -253,20 +292,21 @@ class BluetoothService : Service() {
             val value = characteristic.value ?: return
             val hex = value.joinToString(" ") { "%02X".format(it) }
             val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
-            onDataReceived?.invoke("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
+            _messages.tryEmit("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
             gattOperationComplete()
         }
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 DeviceInsightManager.updateMtu(gatt.device, mtu)
-                onDataReceived?.invoke("[MTU] Negotiated: $mtu bytes")
+                _messages.tryEmit("[MTU] Negotiated: $mtu bytes")
             }
+            gattOperationComplete()
         }
 
         override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 DeviceInsightManager.updateRssi(gatt.device.address, rssi)
-                onDataReceived?.invoke("[RSSI] $rssi dBm")
+                _messages.tryEmit("[RSSI] $rssi dBm")
             }
         }
 
@@ -274,9 +314,9 @@ class BluetoothService : Service() {
             val uuid = descriptor.characteristic.uuid.toString()
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 subscribedCharacteristics.add(uuid)
-                onDataReceived?.invoke("[Subscribed] ${descriptor.characteristic.uuid}")
+                _messages.tryEmit("[Subscribed] ${descriptor.characteristic.uuid}")
             } else {
-                onDataReceived?.invoke("[Subscribe Failed] ${descriptor.characteristic.uuid}")
+                _messages.tryEmit("[Subscribe Failed] ${descriptor.characteristic.uuid}")
             }
             gattOperationComplete()
         }
@@ -287,14 +327,14 @@ class BluetoothService : Service() {
             if (uuid == "00002a37-0000-1000-8000-00805f9b34fb") {
                 val parsed = BleDataParser.parseHeartRate(value)
                 updateNotificationThrottled(parsed)
-                onDataReceived?.invoke("[Notify] $parsed")
+                _messages.tryEmit("[Notify] $parsed")
                 return
             }
 
             val hex = value.joinToString(" ") { "%02X".format(it) }
             val text = BleDataParser.parseText(value)
             updateNotificationThrottled("📡 ${characteristic.uuid.toString().take(4)}: $text")
-            onDataReceived?.invoke("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
+            _messages.tryEmit("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
         }
 
         @Deprecated("Deprecated in Java")
@@ -306,14 +346,14 @@ class BluetoothService : Service() {
             if (uuid == "00002a37-0000-1000-8000-00805f9b34fb") {
                 val parsed = BleDataParser.parseHeartRate(value)
                 updateNotificationThrottled(parsed)
-                onDataReceived?.invoke("[Notify] $parsed")
+                _messages.tryEmit("[Notify] $parsed")
                 return
             }
 
             val hex = value.joinToString(" ") { "%02X".format(it) }
             val text = BleDataParser.parseText(value)
             updateNotificationThrottled("📡 ${characteristic.uuid.toString().take(4)}: $text")
-            onDataReceived?.invoke("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
+            _messages.tryEmit("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
         }
     }
 
@@ -340,11 +380,11 @@ class BluetoothService : Service() {
 
     private fun setupCharacteristics(gatt: BluetoothGatt) {
         val services = gatt.services ?: return
-        onDataReceived?.invoke("[System] Found ${services.size} services")
+        _messages.tryEmit("[System] Found ${services.size} services")
         for (service in services) {
-            onDataReceived?.invoke("[Service] ${BleGattRegistry.identifyService(service.uuid.toString())}\n${service.uuid}")
+            _messages.tryEmit("[Service] ${BleGattRegistry.identifyService(service.uuid.toString())}\n${service.uuid}")
             for (characteristic in service.characteristics) {
-                onDataReceived?.invoke("[Characteristic] ${BleGattRegistry.identifyCharacteristic(characteristic.uuid.toString())}\n${characteristic.uuid}")
+                _messages.tryEmit("[Characteristic] ${BleGattRegistry.identifyCharacteristic(characteristic.uuid.toString())}\n${characteristic.uuid}")
                 val props = characteristic.properties
                 val uuid = characteristic.uuid.toString().lowercase()
 
@@ -377,7 +417,7 @@ class BluetoothService : Service() {
                 return
             }
 
-            onDataReceived?.invoke("[Trying Notify] ${characteristic.uuid}")
+            _messages.tryEmit("[Trying Notify] ${characteristic.uuid}")
             val descriptor = characteristic.getDescriptor(cccdUuid)
             if (descriptor == null) {
                 gattOperationComplete()
@@ -421,6 +461,8 @@ class BluetoothService : Service() {
         startTimeout("Initial connection timed out")
 
         try {
+            lastConnectedDevice = device
+            gatt133Attempts = 0
             bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } catch (_: SecurityException) {
             currentState = BleState.FAILED
@@ -432,7 +474,7 @@ class BluetoothService : Service() {
         isDisconnecting = true
         cancelTimeout()
         synchronized(gattQueue) { gattQueue.clear() }
-        isGattBusy = false
+        isGattBusy.set(false)
         bleNotificationManager.updateNotification("Disconnecting...")
         val gatt = bluetoothGatt
         try { gatt?.disconnect() } catch (_: SecurityException) {}
@@ -450,7 +492,7 @@ class BluetoothService : Service() {
     private fun disconnectInternal() {
         cancelTimeout()
         synchronized(gattQueue) { gattQueue.clear() }
-        isGattBusy = false
+        isGattBusy.set(false)
         val gatt = bluetoothGatt ?: return
         try { gatt.disconnect() } catch (_: SecurityException) {}
         Handler(Looper.getMainLooper()).postDelayed({
@@ -467,11 +509,13 @@ class BluetoothService : Service() {
 
     private fun cleanUp() {
         synchronized(gattQueue) { gattQueue.clear() }
-        isGattBusy = false
+        isGattBusy.set(false)
         subscribedCharacteristics.clear()
         cancelTimeout()
         connectedDeviceName = null
         connectedDeviceAddress = null
+        gatt133Attempts = 0
+        lastConnectedDevice = null
     }
 
     private var lastNotifTime = 0L

@@ -72,6 +72,10 @@ class WriteQueue(
         stopped = true
         processorJob?.cancel()
         processorJob = null
+        while (true) {
+            val entry = channel.tryReceive().getOrNull() ?: break
+            entry.onResult?.invoke(WriteResult.Failure("Queue stopped"))
+        }
         channel.close()
         channel = Channel(capacity = maxQueueSize)
     }

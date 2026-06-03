@@ -280,7 +280,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         inactivityTimeoutJob = managerScope.launch {
             while (isActive && _state.value == ClassicState.CONNECTED) {
                 delay(READ_INACTIVITY_CHECK_MS)
-                if (System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
+                if (!isTransferMode && System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
                     forceDisconnect(FailureReason.Timeout)
                     lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
                     break
