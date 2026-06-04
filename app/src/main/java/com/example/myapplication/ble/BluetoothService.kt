@@ -114,7 +114,7 @@ class BluetoothService : Service() {
                     BluetoothDevice.BOND_BONDING -> {
                         if (currentState == BleState.BONDING) {
                             cancelTimeout()
-                            startTimeout("Bonding timed out", 30000L)
+                            startTimeout("Bonding timed out", 60000L)
                         }
                     }
                     BluetoothDevice.BOND_BONDED -> {
@@ -376,7 +376,7 @@ class BluetoothService : Service() {
     private fun proceedAfterBonding(device: BluetoothDevice) {
         currentState = BleState.DISCOVERING_SERVICES
         bleNotificationManager.updateNotification("Discovering services...")
-        startTimeout("Service discovery timed out")
+        startTimeout("Service discovery timed out", 30000L)
 
         Handler(Looper.getMainLooper()).postDelayed({
             try {

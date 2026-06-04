@@ -139,7 +139,7 @@ class ClassicScanReceiver(
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
 
-                    Toast.makeText(context, "Classic scan done", Toast.LENGTH_SHORT).show()
+
                     Log.d(
                         "CLASSIC_SCAN",
                         "Final classic device count = ${classicDeviceList.size}"

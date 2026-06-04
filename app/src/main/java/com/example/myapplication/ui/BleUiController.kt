@@ -2,26 +2,20 @@ package com.example.myapplication.ui
 
 import android.graphics.Color
 import android.graphics.Typeface
-import android.os.Handler
-import android.os.Looper
-import android.view.ViewGroup
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import android.view.*
+import android.widget.*
 import androidx.core.graphics.toColorInt
-import com.example.myapplication.util.DeviceNameStore
-
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
+import androidx.appcompat.app.AppCompatActivity
 import com.example.myapplication.R
 import com.example.myapplication.ble.BleState
 import com.example.myapplication.models.ActiveTab
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
 
 class BleUiController(
     private val activity: AppCompatActivity,
     private val statusText: TextView,
-    private val backgroundView: GlassmorphicBackgroundView,
+    private val globalUiStateManager: GlobalUiStateManager,
     private val onStartBleScan: () -> Unit,
     private val getConnectedDeviceName: () -> String?,
     private val getCurrentBleState: () -> BleState?,
@@ -32,36 +26,37 @@ class BleUiController(
 ){
     private var bottomSheetDialog: BottomSheetDialog? = null
     private var bottomSheetList: LinearLayout? = null
-    private val uiHandler = Handler(Looper.getMainLooper())
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var delayedStatusRunnable: Runnable? = null
+
     fun updateStatusUi(state: BleState, address: String) {
-        delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
-        backgroundView.transitionToState(state)
-        val name = (if (address.isNotEmpty()) DeviceNameStore.get(activity, address) else null)
-            ?: getConnectedDeviceName()
-            ?: "Device"
+        // ALWAYS cancel pending timers when ANY state change occurs
+        cancelDelayedStatus()
+
+        // Delegate background management to the mediator
+        globalUiStateManager.updateBleState(state)
+
+        val name = getConnectedDeviceName() ?: "Device"
         val statusMsg = when (state) {
             BleState.IDLE -> activity.getString(R.string.not_connected)
+            
             BleState.CONNECTING -> {
-                delayedStatusRunnable = Runnable {
-                    if (getCurrentBleState()== BleState.CONNECTING) {
-                        animateStatusText(statusText, activity.getString(R.string.connection_taking_longer_than_expected))
-                    }
-                }
-                uiHandler.postDelayed(delayedStatusRunnable!!, 5000)
+                startDelayedStatus(activity.getString(R.string.connection_taking_longer_than_expected), 6000L)
                 "Status: Connecting to $name..."
             }
+            
             BleState.BONDING -> {
-                delayedStatusRunnable = Runnable {
-                    if (getCurrentBleState() == BleState.BONDING) {
-                        animateStatusText(statusText, activity.getString(R.string.taking_longer_than_expected_may_disconnect))
-                    }
-                }
-                uiHandler.postDelayed(delayedStatusRunnable!!, 10000)
-                activity.getString(R.string.pairing_new) + name
+                startDelayedStatus(activity.getString(R.string.taking_longer_than_expected_may_disconnect), 4000L)
+                activity.getString(R.string.pairing_new) + " " + name
             }
-            BleState.DISCOVERING_SERVICES -> activity.getString(R.string.paired_connecting)
+            
+            BleState.DISCOVERING_SERVICES -> {
+                startDelayedStatus("Setting up services...", 5000L)
+                activity.getString(R.string.paired_connecting)
+            }
+            
             BleState.READY -> "🟢 Connected: $name ($address)"
+            
             BleState.DISCONNECTED -> {
                 if (isPendingRefresh()) {
                     clearPendingRefresh()
@@ -69,14 +64,29 @@ class BleUiController(
                 }
                 "🔴 Disconnected"
             }
+            
             BleState.FAILED -> "❌ Connection Failed"
         }
+        
         animateStatusText(statusText, statusMsg)
 
         if (state == BleState.DISCONNECTED || state == BleState.FAILED) {
             if (getActiveTab() == ActiveTab.BLE) onDismissDataSheet()
         }
     }
+
+    private fun startDelayedStatus(message: String, delay: Long) {
+        delayedStatusRunnable = Runnable {
+            animateStatusText(statusText, message)
+        }
+        uiHandler.postDelayed(delayedStatusRunnable!!, delay)
+    }
+
+    private fun cancelDelayedStatus() {
+        delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
+        delayedStatusRunnable = null
+    }
+
     private fun animateStatusText(tv: TextView, newText: String) {
         if (tv.text == newText) return
         tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
@@ -85,6 +95,7 @@ class BleUiController(
             tv.animate().alpha(1f).translationY(0f).setDuration(240).start()
         }.start()
     }
+
     fun showDataBottomSheet(data: String) {
         if (bottomSheetDialog == null) {
             bottomSheetDialog = BottomSheetDialog(activity)
@@ -113,10 +124,10 @@ class BleUiController(
         bottomSheetList?.addView(row, 0)
         if (bottomSheetDialog?.isShowing != true) bottomSheetDialog?.show()
     }
+
     fun dismissDataSheet() {
         bottomSheetDialog?.dismiss()
         bottomSheetDialog = null
         bottomSheetList = null
     }
-
 }

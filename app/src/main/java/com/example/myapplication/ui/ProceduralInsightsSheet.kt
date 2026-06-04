@@ -21,7 +21,7 @@ import java.util.Date
 import java.util.Locale
 
 class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
-    var deviceInsightAdapter: DeviceInsightAdapter? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val view = LayoutInflater.from(context).inflate(R.layout.fragment_device_insights, null)

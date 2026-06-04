@@ -4,7 +4,9 @@ import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
@@ -47,7 +49,9 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
+import android.view.Gravity
+import android.widget.FrameLayout
+import com.google.android.material.button.MaterialButton
 class MainActivity : AppCompatActivity() {
 
     // ─── UI State ─────────────────────────────────────────────────────────────
@@ -101,6 +105,29 @@ class MainActivity : AppCompatActivity() {
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
+    private var btBlocker: FrameLayout? = null
+    private var enableBtButton: MaterialButton? = null
+
+    private val enableBluetoothLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { /* STATE_ON receiver handles re-entry; denial leaves blocker visible */ }
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_ON -> {
+                    btBlocker?.visibility = View.GONE
+                    if (!serviceStarted) startBluetoothService()
+                    if (!classicServiceStarted) startClassicBluetoothService()
+                    uiHandler.postDelayed({
+                        if (!bleScanManager.isScanning) bleScanManager.start()
+                    }, 1200)}
+
+                    BluetoothAdapter.STATE_OFF -> btBlocker?.visibility = View.VISIBLE
+            }
+        }
+    }
     private lateinit var bleScanManager: BleScanManager
 
 
@@ -333,6 +360,7 @@ class MainActivity : AppCompatActivity() {
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }
         registerReceiver(classicScanReceiver, filter)
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         bleScanManager = BleScanManager(
             context = this,
             permissionChecker = {
@@ -379,10 +407,13 @@ class MainActivity : AppCompatActivity() {
                 notifyScheduled = false
             }
         )
+
+        val globalUiStateManager = GlobalUiStateManager(ui.backgroundView)
+
         bleUiController = BleUiController(
             activity = this,
             statusText = ui.statusText,
-            backgroundView = ui.backgroundView,
+            globalUiStateManager = globalUiStateManager,
             onStartBleScan = { bleScanManager.start() },
             getConnectedDeviceName = { bluetoothService?.connectedDeviceName },
             getCurrentBleState = { bluetoothService?.currentState },
@@ -399,7 +430,7 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             classicStatusText = ui.classicStatusText,
             transferStatusText = ui.transferStatusText,
-            backgroundView = ui.backgroundView,
+            globalUiStateManager = globalUiStateManager,
             onSendFile = { filePickerLauncher.launch("*/*") },
             isClassicConnected = { classicService?.connectionManager?.isConnected() == true },
             getActiveTab = { activeTab },
@@ -468,9 +499,12 @@ class MainActivity : AppCompatActivity() {
 
         val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isEmpty()) {
-            startBluetoothService()
-            startClassicBluetoothService()
-
+            if (isBluetoothEnabled()) {
+                startBluetoothService()
+                startClassicBluetoothService()
+            } else {
+                showBluetoothBlocker()
+            }
         } else {
             requestPermissionsLauncher.launch(missing.toTypedArray())
         }
@@ -486,6 +520,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun startClassicBluetoothService() {
         if (classicServiceStarted) return
+        if (!isBluetoothEnabled()) return
         classicServiceStarted = true
         val intent = Intent(this, ClassicBluetoothService::class.java).apply { `package` = packageName }
         startForegroundService(intent)
@@ -503,9 +538,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (bluetoothGranted) {
-            startBluetoothService()
-            startClassicBluetoothService()
-
+            if (isBluetoothEnabled()) {
+                startBluetoothService()
+                startClassicBluetoothService()
+            } else {
+                showBluetoothBlocker()
+            }
         } else {
             Toast.makeText(this, "Bluetooth permissions required to scan.", Toast.LENGTH_SHORT).show()
         }
@@ -564,11 +602,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     adapter.startDiscovery()
                     SystemTimeline.log("📡 Classic discovery started")
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Classic scan started",
-                        Toast.LENGTH_SHORT
-                    ).show()
+
                 } catch (_: SecurityException) {}
             }
         }
@@ -623,10 +657,38 @@ class MainActivity : AppCompatActivity() {
             ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_CLASSIC || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
             ?.map { it.address }?.toSet() ?: emptySet()
     } catch (_: Exception) { emptySet() }
+    private fun isBluetoothEnabled(): Boolean =
+        (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == true
+
+    private fun requestBluetoothEnable() {
+        enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+    }
+
+    private fun showBluetoothBlocker() {
+        if (btBlocker != null) { btBlocker?.visibility = View.VISIBLE; requestBluetoothEnable(); return }
+        btBlocker = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+            setBackgroundColor(0xCC000000.toInt())
+            isClickable = true  // swallows touches — nothing behind is reachable
+            enableBtButton = MaterialButton(this@MainActivity).apply {
+                text = getString(R.string.enable_bluetooth)
+                textSize = 15f
+                setTextColor(getColor(R.color.color_text_primary))
+                setBackgroundResource(R.drawable.bg_button_glass)
+                stateListAnimator = null
+                layoutParams = FrameLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER }
+                setOnClickListener { requestBluetoothEnable() }
+            }
+            addView(enableBtButton)
+        }
+        ui.rootFrame.addView(btBlocker)
+        requestBluetoothEnable()  // show system dialog immediately on first show
+    }
     override fun onDestroy() {
         super.onDestroy()
         delayedStatusRunnable?.let { uiHandler.removeCallbacks(it) }
         try { unregisterReceiver(classicScanReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(bluetoothStateReceiver) } catch (_: Exception) {}
         classicCollectorJob?.cancel()
         bleCollectorJob?.cancel()
         bleScanManager.stop()

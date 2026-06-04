@@ -106,7 +106,7 @@ class BleScanManager(
             isScanning = true
             lastScanStartTime = now
 
-            Toast.makeText(context, "Scanning BLE...", Toast.LENGTH_SHORT).show()
+
 
             // Auto-stop scan after 15 seconds
             scanHandler.removeCallbacks(scanTimeoutRunnable)
