@@ -26,15 +26,37 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
         super.onCreate(savedInstanceState)
         val view = LayoutInflater.from(context).inflate(R.layout.fragment_device_insights, null)
         setContentView(view)
+        setOnShowListener { dialog ->
+            val bottomSheet =
+                (dialog as BottomSheetDialog)
+                    .findViewById<View>(
+                        com.google.android.material.R.id.design_bottom_sheet
+                    )
 
+            bottomSheet?.let {
+                val behavior =
+                    com.google.android.material.bottomsheet.BottomSheetBehavior.from(it)
+
+                behavior.state =
+                    com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+
+                behavior.skipCollapsed = true
+            }
+        }
         val tabLayout = view.findViewById<TabLayout>(R.id.insightsTabLayout)
         val viewPager = view.findViewById<ViewPager2>(R.id.insightsViewPager)
         var deviceInsightAdapter: DeviceInsightAdapter? = null
         viewPager.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
                 val rv = RecyclerView(parent.context).apply {
-                    layoutParams = ViewGroup.LayoutParams(-1, -1)
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+
                     layoutManager = LinearLayoutManager(parent.context)
+
+                    isNestedScrollingEnabled = false
                 }
                 return object : RecyclerView.ViewHolder(rv) {}
             }
