@@ -29,7 +29,6 @@ but rarely both in a unified experience.
 OpenBlue Suite combines both technologies into a single application while providing powerful debugging and inspection tools that help developers understand what is happening behind the scenes.
 
 🚀 Core Features
-!IMPORTANT: This app does not yet support asynchronous connections for BLE and Classic Devices, architecture for that is under development. At present, BLE connections are disabled. 
 Bluetooth Discovery
 BLE Device Scanning
 Real-time BLE scanning
