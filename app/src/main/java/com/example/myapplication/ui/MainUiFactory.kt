@@ -51,7 +51,8 @@ object MainUiFactory {
         onTabClassic: () -> Unit,
         onFeatures: () -> Unit,
         connectBleCallback: (BluetoothDevice) -> Unit,
-        connectClassicCallback: (BluetoothDevice) -> Unit
+        connectClassicCallback: (BluetoothDevice) -> Unit,
+        onForgetClassicDevice: (BluetoothDevice) -> Unit
     ): UiComponents {
         val deviceAdapter = DeviceAdapter(
             adapterContext = activity,
@@ -63,7 +64,8 @@ object MainUiFactory {
             adapterContext = activity,
             devices = classicDeviceList,
             deviceMap = classicDeviceMap,
-            connectCallback = { device -> connectClassicCallback(device) }
+            connectCallback = { device -> connectClassicCallback(device) },
+            forgetCallback = onForgetClassicDevice
         )
         val listView = ListView(activity)
         val statusText = TextView(activity).apply {

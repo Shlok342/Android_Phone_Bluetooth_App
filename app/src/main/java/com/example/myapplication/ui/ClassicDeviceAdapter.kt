@@ -1,5 +1,6 @@
 package com.example.myapplication.ui
 
+
 import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
 import android.view.LayoutInflater
@@ -19,11 +20,15 @@ import com.google.android.material.button.MaterialButton
 import com.example.myapplication.util.FavoriteStore
 import com.example.myapplication.models.FilterType
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 class ClassicDeviceAdapter(
     private val adapterContext: Context,
     private val devices: List<ClassicDeviceItem>,
     private val deviceMap: Map<String, BluetoothDevice>,
-    private val connectCallback: (BluetoothDevice) -> Unit
+    private val connectCallback: (BluetoothDevice) -> Unit,
+    private val forgetCallback: (BluetoothDevice) -> Unit
 ) : BaseAdapter() {
     override fun getCount() = displayList().size
     override fun getItem(p: Int) = displayList()[p]
@@ -106,6 +111,45 @@ class ClassicDeviceAdapter(
                 else -> "#A78BFA".toColorInt()
             }
         )
+        val forgetBtn = view.findViewById<Button>(R.id.forgetBtn)
+        val device = deviceMap[item.address]
+
+        forgetBtn.visibility =
+            if (
+                ContextCompat.checkSelfPermission(
+                    parent.context,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+                &&
+                device?.bondState == BluetoothDevice.BOND_BONDED
+            ) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+
+
+        forgetBtn.setOnClickListener {
+
+
+
+            if (device == null) {
+                Toast.makeText(
+                    adapterContext,                    "Device not found",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            AlertDialog.Builder(adapterContext)
+                .setTitle("Forget Device")
+                .setMessage("Forget $displayName?")
+                .setPositiveButton("Forget") { _, _ ->
+                    forgetCallback(device)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
         view.findViewById<Button>(R.id.connectBtn).apply {
 
             isAllCaps = false
@@ -195,6 +239,7 @@ class ClassicDeviceAdapter(
                 else
                     R.drawable.bg_glass_card
             )
+            updateStarButton(starBtn, newState)
         }
         return view
     }

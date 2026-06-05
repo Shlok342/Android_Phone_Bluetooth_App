@@ -359,7 +359,26 @@ class ClassicConnectionManager(private val appContext: Context) {
         parser.onMessageParsed = null
         parser.reset()
     }
+    fun forgetDevice(device: BluetoothDevice): Boolean {
+        return try {
 
+            if (
+                connectedDeviceAddress == device.address
+            ) {
+                disconnect()
+            }
+
+            val method =
+                device.javaClass.getMethod("removeBond")
+
+            method.invoke(device)
+
+            true
+
+        } catch (e: Exception) {
+            false
+        }
+    }
     // ─── Permission / Device Helpers ───────────────────────
     private fun hasConnectPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true

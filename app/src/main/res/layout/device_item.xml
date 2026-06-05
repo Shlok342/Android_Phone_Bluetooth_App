@@ -83,7 +83,17 @@
             android:insetTop="0dp"
             android:insetBottom="0dp"
             android:stateListAnimator="@null" />
-
+        <ImageButton
+            android:id="@+id/forgetBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/baseline_delete_forever_24"
+            android:background="@drawable/bg_edit_pen"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Forget device"
+            android:stateListAnimator="@null" />
         <ImageButton
             android:id="@+id/editNameBtn"
             android:layout_width="32dp"

@@ -345,8 +345,17 @@ class MainActivity : AppCompatActivity() {
             connectClassicCallback = { device ->
                 DeviceInsightManager.onAppEvent("UI: Connecting to Classic device ${device.address}")
                 classicService?.connectionManager?.connect(device)
+            },
+            onForgetClassicDevice = { device ->
+                try {
+                    device.javaClass.getMethod("removeBond").invoke(device)
+                    classicService?.connectionManager?.disconnect()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Failed to forget device", Toast.LENGTH_SHORT).show()
+                }
             }
         )
+
 
         checkPermissionsAndStartService()
 
