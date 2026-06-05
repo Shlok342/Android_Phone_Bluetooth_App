@@ -33,7 +33,9 @@ data class UiComponents(
     val bleClearFilterBtn: MaterialButton,
     val classicClearFilterBtn: MaterialButton,
     val bleFilterDBtn: ImageButton,//D for devices, there was confusion while debugging.
-    val classicFilterBtn: ImageButton
+    val bleBluetoothBtn: ImageButton,
+    val classicFilterBtn: ImageButton,
+    val classicBluetoothBtn: ImageButton
 )
 
 object MainUiFactory {
@@ -107,6 +109,15 @@ object MainUiFactory {
                 visibility = View.GONE
             }
         }
+        val bleBluetoothBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_bluetooth_toggle)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity)).apply {
+                marginStart = 8.dp(activity)
+            }
+
+        }
         val bleFilterDBtn = ImageButton(activity).apply {
             setImageResource(R.drawable.ic_filter)
             setBackgroundResource(R.drawable.bg_edit_pen)
@@ -141,6 +152,15 @@ object MainUiFactory {
             setOnClickListener {
                 onFeatures()
             }
+        }
+        val classicBluetoothBtn = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_bluetooth_toggle)
+            setBackgroundResource(R.drawable.bg_edit_pen)
+            setPadding(6.dp(activity), 6.dp(activity), 6.dp(activity), 6.dp(activity))
+            layoutParams = LinearLayout.LayoutParams(32.dp(activity), 32.dp(activity)).apply {
+                marginStart = 8.dp(activity)
+            }
+
         }
         val classicFilterBtn = ImageButton(activity).apply {
             setImageResource(R.drawable.ic_filter)
@@ -182,6 +202,7 @@ object MainUiFactory {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(24.dp(activity), 32.dp(activity), 24.dp(activity), 6.dp(activity))
             addView(bleHeaderText)
+            addView(bleBluetoothBtn)
             addView(bleClearFilterBtn)
             addView(bleFilterDBtn)
             addView(bleFeaturesBtn)
@@ -227,6 +248,7 @@ object MainUiFactory {
             addView(classicTextHeader)
             addView(classicClearFilterBtn)
             addView(classicFilterBtn)
+            addView(classicBluetoothBtn)
             addView(classicFeaturesBtn)
             addView(classicSearchBtn)
 
@@ -456,7 +478,7 @@ object MainUiFactory {
             rootFrame, backgroundView, listView, classicListView, statusText,
             classicStatusText, bleHeaderText, classicTextHeader, bleTabBtn,
             classicTabBtn, classicActionsRow, transferStatusText, deviceAdapter, classicAdapter,
-            bleClearFilterBtn, classicClearFilterBtn, bleFilterDBtn, classicFilterBtn
+            bleClearFilterBtn, classicClearFilterBtn, bleFilterDBtn, bleBluetoothBtn,classicFilterBtn, classicBluetoothBtn
         )
     }
 }

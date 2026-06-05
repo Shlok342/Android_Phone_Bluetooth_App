@@ -111,7 +111,7 @@ class ClassicDeviceAdapter(
                 else -> "#A78BFA".toColorInt()
             }
         )
-        val forgetBtn = view.findViewById<Button>(R.id.forgetBtn)
+        val forgetBtn = view.findViewById<ImageButton>(R.id.forgetBtn)
         val device = deviceMap[item.address]
 
         forgetBtn.visibility =

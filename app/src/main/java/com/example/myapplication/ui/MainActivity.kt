@@ -1,6 +1,7 @@
 package com.example.myapplication.ui
 
 import android.Manifest
+
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -58,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ui: UiComponents
 
     private val uiHandler = Handler(Looper.getMainLooper())
+
     private var pendingRefresh = false
     private var hasAudioEverConnected = false
     private var delayedStatusRunnable: Runnable? = null
@@ -75,14 +77,59 @@ class MainActivity : AppCompatActivity() {
     private var activeTab = ActiveTab.BLE
     private var activeBleFilter     = FilterType.NONE
     private var activeClassicFilter = FilterType.NONE
-    private var serviceStarted = false
-    private var classicServiceStarted = false
+
     private var bleCollectorJob: Job? = null
 
     // ─── Bottom Sheet for Live Data ───────────────────────────────────────────
     private var bottomSheetDialog: BottomSheetDialog? = null
     private var bottomSheetList: LinearLayout? = null
+    private val requestBluetoothEnableLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            // User tapped "Allow"
+            Toast.makeText(this, "Bluetooth is now ON", Toast.LENGTH_SHORT).show()
+        } else {
+            // User tapped "Deny" or closed the dialog
+            Toast.makeText(this, "Bluetooth activation was declined", Toast.LENGTH_SHORT).show()
+        }
+    }
+    private fun promptToTurnOnBluetooth() {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
 
+        if (bluetoothAdapter == null) {
+            Toast.makeText(this, "Device doesn't support Bluetooth", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Trigger the system dialog only if Bluetooth is currently OFF
+        if (!bluetoothAdapter.isEnabled) {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            requestBluetoothEnableLauncher.launch(enableBtIntent)
+        } else {
+            Toast.makeText(this, "Bluetooth is already ON", Toast.LENGTH_SHORT).show()
+        }
+    }
+    private fun checkBluetoothOnEntry() {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothAdapter = bluetoothManager.adapter
+
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
+            // If they just opened the app (or came back to it) and BT is off -> Show blocker
+            btBlocker?.visibility = View.VISIBLE
+        } else {
+            hideBlockerAndStartServices()
+        }
+    }
+    private fun hideBlockerAndStartServices() {
+        btBlocker?.visibility = View.GONE
+        if (!serviceStarted) startBluetoothService()
+        if (!classicServiceStarted) startClassicBluetoothService()
+        uiHandler.postDelayed({
+            if (!bleScanManager.isScanning) bleScanManager.start()
+        }, 1200)
+    }
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -108,6 +155,11 @@ class MainActivity : AppCompatActivity() {
     private var btBlocker: FrameLayout? = null
     private var enableBtButton: MaterialButton? = null
 
+
+
+    private var serviceStarted = false
+    private var classicServiceStarted = false
+
     private val enableBluetoothLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { /* STATE_ON receiver handles re-entry; denial leaves blocker visible */ }
@@ -115,16 +167,13 @@ class MainActivity : AppCompatActivity() {
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
-            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                BluetoothAdapter.STATE_ON -> {
-                    btBlocker?.visibility = View.GONE
-                    if (!serviceStarted) startBluetoothService()
-                    if (!classicServiceStarted) startClassicBluetoothService()
-                    uiHandler.postDelayed({
-                        if (!bleScanManager.isScanning) bleScanManager.start()
-                    }, 1200)}
 
-                    BluetoothAdapter.STATE_OFF -> btBlocker?.visibility = View.VISIBLE
+            val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+
+            // While the app is actively running, we ONLY care if they turn Bluetooth ON.
+            // We intentionally ignore STATE_OFF here so the blocker never interrupts mid-use.
+            if (state == BluetoothAdapter.STATE_ON) {
+                hideBlockerAndStartServices()
             }
         }
     }
@@ -143,7 +192,12 @@ class MainActivity : AppCompatActivity() {
             }
         },
         onDeviceListChanged = { runOnUiThread { ui.classicAdapter.notifyDataSetChanged() } },
-        onStatusUpdate = { msg -> runOnUiThread { ui.classicStatusText.text = msg } }
+        onStatusUpdate = { msg ->
+            runOnUiThread {
+                ui.classicStatusText.text = msg
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
+        }
     )
 
     private val serviceConnection = object : ServiceConnection {
@@ -347,10 +401,16 @@ class MainActivity : AppCompatActivity() {
                 classicService?.connectionManager?.connect(device)
             },
             onForgetClassicDevice = { device ->
-                try {
-                    device.javaClass.getMethod("removeBond").invoke(device)
-                    classicService?.connectionManager?.disconnect()
-                } catch (_: Exception) {
+                val success = classicService?.connectionManager?.forgetDevice(device) ?: false
+                if (success) {
+                    runOnUiThread {
+                        synchronized(classicDeviceList) {
+                            classicDeviceList.removeAll { it.address == device.address }
+                            classicDeviceMap.remove(device.address)
+                        }
+                        ui.classicAdapter.notifyDataSetChanged()
+                    }
+                } else {
                     Toast.makeText(this, "Failed to forget device", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -370,6 +430,7 @@ class MainActivity : AppCompatActivity() {
         }
         registerReceiver(classicScanReceiver, filter)
         registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        checkBluetoothOnEntry()
         bleScanManager = BleScanManager(
             context = this,
             permissionChecker = {
@@ -478,7 +539,9 @@ class MainActivity : AppCompatActivity() {
                 }
             ).show()
         }
-
+        ui.bleBluetoothBtn.setOnClickListener {
+            promptToTurnOnBluetooth()
+        }
 // Classic filter button
         ui.classicFilterBtn.setOnClickListener {
             DeviceFilterSheet(
@@ -492,6 +555,9 @@ class MainActivity : AppCompatActivity() {
                     ui.classicClearFilterBtn.visibility = if (type != FilterType.NONE) View.VISIBLE else View.GONE
                 }
             ).show()
+        }
+        ui.classicBluetoothBtn.setOnClickListener {
+            promptToTurnOnBluetooth()
         }
     }
 
@@ -706,6 +772,8 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
+        checkBluetoothOnEntry()
+        registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         bluetoothService?.let {
             if (it.currentState == BleState.DISCONNECTED || it.currentState == BleState.FAILED) {
                 it.resetToIdle()

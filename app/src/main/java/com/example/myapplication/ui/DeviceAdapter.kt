@@ -101,6 +101,7 @@ class DeviceAdapter(
         val view = v ?: LayoutInflater.from(parent.context)
             .inflate(R.layout.device_item, parent, false)
 
+        view.findViewById<View>(R.id.forgetBtn).visibility = View.GONE
         val item = displayList()[p]
         val card = view.findViewById<View>(R.id.deviceCard)
         val indicator = view.findViewById<View>(R.id.deviceIndicator)

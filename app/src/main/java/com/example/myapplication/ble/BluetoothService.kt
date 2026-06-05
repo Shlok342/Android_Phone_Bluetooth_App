@@ -120,7 +120,28 @@ class BluetoothService : Service() {
                     BluetoothDevice.BOND_BONDED -> {
                         if (currentState == BleState.BONDING) {
                             cancelTimeout()
-                            device?.let { proceedAfterBonding(it) }
+                            val bondedDevice = device ?: lastConnectedDevice ?: run {
+                                currentState = BleState.FAILED
+                                bleNotificationManager.updateNotification("Bond complete but device lost")
+                                return
+                            }
+                            if (bluetoothGatt == null) {
+                                // GATT dropped during bonding (normal Android behaviour) — reconnect
+                                currentState = BleState.CONNECTING
+                                bleNotificationManager.updateNotification("Reconnecting after bond...")
+                                startTimeout("Post-bond reconnect timed out")
+                                try {
+                                    bluetoothGatt = bondedDevice.connectGatt(
+                                        this@BluetoothService, false,
+                                        gattCallback, BluetoothDevice.TRANSPORT_LE
+                                    )
+                                } catch (_: SecurityException) {
+                                    currentState = BleState.FAILED
+                                    bleNotificationManager.updateNotification("Permission error after bond")
+                                }
+                            } else {
+                                proceedAfterBonding(bondedDevice)
+                            }
                         }
                     }
                     BluetoothDevice.BOND_NONE -> {
@@ -187,6 +208,7 @@ class BluetoothService : Service() {
                     }, delay)
                     return
                 }
+                if (currentState == BleState.BONDING) return
                 cleanUp()
                 bleNotificationManager.updateNotification("Connection failed (status $status)")
                 currentState = BleState.FAILED
@@ -241,6 +263,12 @@ class BluetoothService : Service() {
                     DeviceInsightManager.onDisconnected(address, "GATT Disconnected (Status $status)")
 
                     if (isDisconnecting) return
+                    if (currentState == BleState.BONDING) {
+                        try { gatt.close() } catch (_: SecurityException) {}
+                        bluetoothGatt = null
+                        return  // Don't clean up — let bondReceiver handle reconnect
+                    }
+
                     cancelTimeout()
                     currentState = BleState.DISCONNECTED
                     bleNotificationManager.updateNotification("Disconnected")
