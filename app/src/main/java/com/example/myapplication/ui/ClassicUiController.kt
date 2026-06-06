@@ -1,17 +1,13 @@
 package com.example.myapplication.ui
 
 import android.graphics.Typeface
-import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.R
-import com.example.myapplication.util.SystemTimeline
 import com.example.myapplication.classic.ClassicConnectionManager
 import com.example.myapplication.classic.ClassicState
 import com.example.myapplication.classic.FailureReason
@@ -19,7 +15,7 @@ import com.example.myapplication.classic.FileTransferState
 import com.example.myapplication.classic.TransferDirection
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.dp
-import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.example.myapplication.classic.ConnectionSecurity
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 
@@ -43,20 +39,24 @@ class ClassicUiController (
         }.start()
     }
 
-    fun updateClassicStatusUi(state: ClassicState, address: String) {
+    fun updateClassicStatusUi(state: ClassicState, address: String,security: ConnectionSecurity) {
         // Delegate background management
         globalUiStateManager.updateClassicState(state)
 
         val name = (if (address.isNotEmpty()) DeviceNameStore.get(activity, address) else null)
             ?: getConnectedDeviceName()
             ?: "Device"
-            
+        val securityIcon = when (security) {
+            ConnectionSecurity.SECURE -> "🔒 "
+            ConnectionSecurity.INSECURE -> "🔓 "
+            ConnectionSecurity.UNKNOWN -> ""
+        }
         val statusMsg = when (state) {
             ClassicState.IDLE -> "Classic: Idle"
             
             ClassicState.CONNECTING -> "Classic: Connecting to $name..."
             
-            ClassicState.CONNECTED -> "🟢 Classic: Connected to $name ($address)"
+            ClassicState.CONNECTED -> "${securityIcon}🟢 Classic: Connected to $name ($address)"
             
             ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
             

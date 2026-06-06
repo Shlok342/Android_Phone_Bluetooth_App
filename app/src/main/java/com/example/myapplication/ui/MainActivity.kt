@@ -52,7 +52,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.view.Gravity
 import android.widget.FrameLayout
+import com.example.myapplication.classic.ConnectionSecurity
 import com.google.android.material.button.MaterialButton
+
+
 class MainActivity : AppCompatActivity() {
 
     // ─── UI State ─────────────────────────────────────────────────────────────
@@ -76,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var classicUiController: ClassicUiController
     private var activeTab = ActiveTab.BLE
     private var activeBleFilter     = FilterType.NONE
+    private var btBlocker: FrameLayout? = null
     private var activeClassicFilter = FilterType.NONE
 
     private var bleCollectorJob: Job? = null
@@ -122,14 +126,7 @@ class MainActivity : AppCompatActivity() {
             hideBlockerAndStartServices()
         }
     }
-    private fun hideBlockerAndStartServices() {
-        btBlocker?.visibility = View.GONE
-        if (!serviceStarted) startBluetoothService()
-        if (!classicServiceStarted) startClassicBluetoothService()
-        uiHandler.postDelayed({
-            if (!bleScanManager.isScanning) bleScanManager.start()
-        }, 1200)
-    }
+
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -152,7 +149,7 @@ class MainActivity : AppCompatActivity() {
     private var classicService: ClassicBluetoothService? = null
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
-    private var btBlocker: FrameLayout? = null
+
     private var enableBtButton: MaterialButton? = null
 
 
@@ -176,6 +173,14 @@ class MainActivity : AppCompatActivity() {
                 hideBlockerAndStartServices()
             }
         }
+    }
+    private fun hideBlockerAndStartServices() {
+        btBlocker?.visibility = View.GONE
+        if (!serviceStarted) startBluetoothService()
+        if (!classicServiceStarted) startClassicBluetoothService()
+        uiHandler.postDelayed({
+            if (!bleScanManager.isScanning) bleScanManager.start()
+        }, 1200)
     }
     private lateinit var bleScanManager: BleScanManager
 
@@ -215,7 +220,8 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         service.connectionInfo.collect { info ->
-                            bleUiController.updateStatusUi(info.state, info.address)
+                            bleUiController.updateStatusUi(info.state, info.address, bluetoothService?.getConnectionSecurity()
+                                ?: ConnectionSecurity.UNKNOWN)
                             when (info.state) {
                                 BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${service.connectedDeviceName ?: info.address}")
                                 BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${service.connectedDeviceName ?: info.address}")
@@ -254,7 +260,7 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         manager.connectionInfo.collect { info ->
-                            classicUiController.updateClassicStatusUi(info.state, info.address)
+                            classicUiController.updateClassicStatusUi(info.state, info.address, manager.getConnectionSecurity())
                             when (val s = info.state) {
                                 ClassicState.CONNECTING   -> SystemTimeline.log("🔄 Classic connecting to ${info.deviceName.ifBlank { info.address }}")
                                 ClassicState.CONNECTED    -> SystemTimeline.log("🟢 Classic connected: ${info.deviceName}")
@@ -321,7 +327,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            classicUiController.updateClassicStatusUi(manager.state.value, manager.connectedDeviceAddress ?: "")
+            classicUiController.updateClassicStatusUi(manager.state.value, manager.connectedDeviceAddress ?: "", manager.getConnectionSecurity())
             if (activeTab == ActiveTab.CLASSIC) startClassicScan()
         }
 

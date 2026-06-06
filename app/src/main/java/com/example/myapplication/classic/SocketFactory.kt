@@ -5,11 +5,14 @@ import android.bluetooth.BluetoothSocket
 import android.util.Log
 import java.io.IOException
 import java.util.UUID
-
+data class SocketResult(
+    val socket: BluetoothSocket,
+    val security: ConnectionSecurity
+)
 object SocketFactory {
 
     private val sppUUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
-    fun createSocket(device: BluetoothDevice): BluetoothSocket {
+    fun createSocket(device: BluetoothDevice): SocketResult {
 
         try {
             log("Trying insecure RFCOMM...")
@@ -21,7 +24,10 @@ object SocketFactory {
 
             log("Insecure RFCOMM success")
 
-            return insecureSocket
+            return SocketResult(
+                socket = insecureSocket,
+                security = ConnectionSecurity.INSECURE
+            )
 
         } catch (e: IOException) {
 
@@ -38,7 +44,10 @@ object SocketFactory {
 
             log("Secure RFCOMM success")
 
-            return secureSocket
+            return SocketResult(
+                socket = secureSocket,
+                security = ConnectionSecurity.SECURE
+            )
 
         } catch (e: IOException) {
 
@@ -51,7 +60,10 @@ object SocketFactory {
 
         fallbackSocket.connect()
 
-        return fallbackSocket
+        return SocketResult(
+            socket = fallbackSocket,
+            security = ConnectionSecurity.UNKNOWN
+        )
     }
     private fun createFallbackSocket(
         device: BluetoothDevice

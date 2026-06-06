@@ -99,6 +99,8 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
     // ─── Sockets / Streams ─────────────────────────────────
     private var bluetoothSocket: BluetoothSocket? = null
+    private var connectionSecurity =
+        ConnectionSecurity.UNKNOWN
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
 
@@ -207,10 +209,20 @@ class ClassicConnectionManager(private val appContext: Context) {
                     // Log the error or gracefully degrade the feature.
                     e.printStackTrace()
                 }
-                val socket = SocketFactory.createSocket(device)
-                bluetoothSocket = socket
-                inputStream  = socket.inputStream
-                outputStream = socket.outputStream
+                val socketResult =
+                    SocketFactory.createSocket(device)
+
+                bluetoothSocket =
+                    socketResult.socket
+
+                connectionSecurity =
+                    socketResult.security
+
+                inputStream =
+                    socketResult.socket.inputStream
+
+                outputStream =
+                    socketResult.socket.outputStream
                 onConnected()
             } catch (_: Exception) {
                 cancelConnectionTimeout()
@@ -349,6 +361,8 @@ class ClassicConnectionManager(private val appContext: Context) {
 
 
         bluetoothSocket = null
+        connectionSecurity =
+            ConnectionSecurity.UNKNOWN
         inputStream     = null
         outputStream    = null
         connectedDeviceAddress = null
@@ -394,7 +408,9 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun resolveDeviceName(device: BluetoothDevice): String = try {
         if (!hasConnectPermission()) "Unknown" else device.name ?: "Unknown"
     } catch (_: SecurityException) { "Unknown" }
-
+    fun getConnectionSecurity(): ConnectionSecurity {
+        return connectionSecurity
+    }
     fun isConnected() = _state.value == ClassicState.CONNECTED
     fun resetToIdle() {
         if (_state.value == ClassicState.DISCONNECTED || _state.value is ClassicState.FAILED) {

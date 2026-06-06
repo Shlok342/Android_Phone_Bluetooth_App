@@ -11,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.myapplication.R
 import com.example.myapplication.ble.BleState
 import com.example.myapplication.models.ActiveTab
-
+import com.example.myapplication.classic.ConnectionSecurity
 class BleUiController(
     private val activity: AppCompatActivity,
     private val statusText: TextView,
@@ -29,7 +29,7 @@ class BleUiController(
     private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var delayedStatusRunnable: Runnable? = null
 
-    fun updateStatusUi(state: BleState, address: String) {
+    fun updateStatusUi(state: BleState, address: String,security: ConnectionSecurity) {
         // ALWAYS cancel pending timers when ANY state change occurs
         cancelDelayedStatus()
 
@@ -37,6 +37,10 @@ class BleUiController(
         globalUiStateManager.updateBleState(state)
 
         val name = getConnectedDeviceName() ?: "Device"
+        val securityIcon = when (security) {
+            ConnectionSecurity.SECURE -> "🔒 "
+            else -> ""
+        }
         val statusMsg = when (state) {
             BleState.IDLE -> activity.getString(R.string.not_connected)
             
@@ -54,8 +58,9 @@ class BleUiController(
                 startDelayedStatus("Setting up services...", 5000L)
                 activity.getString(R.string.paired_connecting)
             }
-            
-            BleState.READY -> "🟢 Connected: $name ($address)"
+
+            BleState.READY ->
+                "${securityIcon}🟢 BLE: Connected to $name ($address)"
             
             BleState.DISCONNECTED -> {
                 if (isPendingRefresh()) {

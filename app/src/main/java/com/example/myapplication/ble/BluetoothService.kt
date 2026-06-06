@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.example.myapplication.classic.ConnectionSecurity
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.models.BleConnectionInfo
 import java.util.UUID
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
+
 enum class BleState {
     IDLE,
     CONNECTING,
@@ -42,6 +44,15 @@ class BluetoothService : Service() {
         fun getService(): BluetoothService = this@BluetoothService
     }
     private val binder = LocalBinder()
+    private val _batteryLevel =
+        MutableStateFlow<Int?>(null)
+
+    val batteryLevel =
+        _batteryLevel.asStateFlow()
+    private val batteryCharacteristicUuid =
+        UUID.fromString(
+            "00002a19-0000-1000-8000-00805f9b34fb"
+        )
     override fun onBind(intent: Intent): IBinder = binder
 
     // ─── Coroutines ──────────────────────────────────────────────────────────
@@ -71,6 +82,12 @@ class BluetoothService : Service() {
             _connectionInfo.value = BleConnectionInfo(currentState, value ?: "")
         }
     var connectedDeviceName: String? = null
+    private var connectionSecurity =
+        ConnectionSecurity.UNKNOWN
+
+    fun getConnectionSecurity(): ConnectionSecurity {
+        return connectionSecurity
+    }
 
     private lateinit var bleNotificationManager: BleNotificationManager
     private val subscribedCharacteristics = mutableSetOf<String>()
@@ -85,6 +102,8 @@ class BluetoothService : Service() {
             if (currentState != BleState.READY) {
                 bleNotificationManager.updateNotification("Connection Timeout: $message")
                 currentState = BleState.FAILED
+                connectionSecurity =
+                    ConnectionSecurity.UNKNOWN
                 disconnect()
             }
         }
@@ -122,6 +141,8 @@ class BluetoothService : Service() {
                             cancelTimeout()
                             val bondedDevice = device ?: lastConnectedDevice ?: run {
                                 currentState = BleState.FAILED
+                                connectionSecurity =
+                                    ConnectionSecurity.UNKNOWN
                                 bleNotificationManager.updateNotification("Bond complete but device lost")
                                 return
                             }
@@ -137,6 +158,8 @@ class BluetoothService : Service() {
                                     )
                                 } catch (_: SecurityException) {
                                     currentState = BleState.FAILED
+                                    connectionSecurity =
+                                        ConnectionSecurity.UNKNOWN
                                     bleNotificationManager.updateNotification("Permission error after bond")
                                 }
                             } else {
@@ -147,6 +170,8 @@ class BluetoothService : Service() {
                     BluetoothDevice.BOND_NONE -> {
                         if (currentState == BleState.BONDING || currentState == BleState.CONNECTING) {
                             currentState = BleState.FAILED
+                            connectionSecurity =
+                                ConnectionSecurity.UNKNOWN
                             bleNotificationManager.updateNotification("Bonding failed")
                             disconnect()
                         }
@@ -198,12 +223,15 @@ class BluetoothService : Service() {
                     bleNotificationManager.updateNotification("GATT error 133, retrying ($gatt133Attempts/$MAX133RETRIES)...")
                     currentState = BleState.CONNECTING
                     val device = lastConnectedDevice ?: run { currentState = BleState.FAILED; return }
+                    connectionSecurity =
+                        ConnectionSecurity.UNKNOWN
                     Handler(Looper.getMainLooper()).postDelayed({
                         if (!isDisconnecting && currentState == BleState.CONNECTING) {
                             try {
                                 bluetoothGatt = device.connectGatt(this@BluetoothService, false,
                                     gattCallback, BluetoothDevice.TRANSPORT_LE)
                             } catch (_: SecurityException) { currentState = BleState.FAILED }
+
                         }
                     }, delay)
                     return
@@ -212,6 +240,8 @@ class BluetoothService : Service() {
                 cleanUp()
                 bleNotificationManager.updateNotification("Connection failed (status $status)")
                 currentState = BleState.FAILED
+                connectionSecurity =
+                    ConnectionSecurity.UNKNOWN
                 return
             }
 
@@ -237,6 +267,8 @@ class BluetoothService : Service() {
                             startTimeout("Bonding timed out", 30000L)
                             try { gatt.device.createBond() } catch (_: SecurityException) {
                                 currentState = BleState.FAILED
+                                connectionSecurity =
+                                    ConnectionSecurity.UNKNOWN
                                 bleNotificationManager.updateNotification("Permission error during bonding")
                             }
                         }
@@ -252,6 +284,8 @@ class BluetoothService : Service() {
                             Handler(Looper.getMainLooper()).postDelayed({
                                 try { gatt.discoverServices() } catch (_: SecurityException) {
                                     currentState = BleState.FAILED
+                                    connectionSecurity =
+                                        ConnectionSecurity.UNKNOWN
                                     bleNotificationManager.updateNotification("Failed discovering services")
                                 }
                             }, 500)
@@ -290,6 +324,8 @@ class BluetoothService : Service() {
             cancelTimeout()
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 currentState = BleState.FAILED
+                connectionSecurity =
+                    ConnectionSecurity.UNKNOWN
                 bleNotificationManager.updateNotification("Service discovery failed")
                 return
             }
@@ -300,17 +336,64 @@ class BluetoothService : Service() {
             }
             setupCharacteristics(gatt)
             currentState = BleState.READY
+            connectionSecurity =
+                ConnectionSecurity.SECURE
             bleNotificationManager.updateNotification("Ready: $connectedDeviceName")
             try { gatt.readRemoteRssi() } catch (_: SecurityException) {}
         }
 
-        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Read Characteristic: ${characteristic.uuid}")
-                val hex = value.joinToString(" ") { "%02X".format(it) }
-                val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
-                _messages.tryEmit("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
+
+                if (
+                    characteristic.uuid ==
+                    batteryCharacteristicUuid
+                ) {
+                    if (value.isNotEmpty()) {
+
+                        val batteryPercent =
+                            value[0].toInt() and 0xFF
+
+                        _batteryLevel.value =
+                            batteryPercent
+
+                        _messages.tryEmit(
+                            "[Battery] $batteryPercent%"
+                        )
+
+                        DeviceInsightManager.addDeviceEvent(
+                            gatt.device.address,
+                            "Battery Level: $batteryPercent%"
+                        )
+                    }
+                }
+
+                DeviceInsightManager.addDeviceEvent(
+                    gatt.device.address,
+                    "Read Characteristic: ${characteristic.uuid}"
+                )
+
+                val hex =
+                    value.joinToString(" ") {
+                        "%02X".format(it)
+                    }
+
+                val text = try {
+                    String(value, Charsets.UTF_8)
+                } catch (_: Exception) {
+                    "Unreadable"
+                }
+
+                _messages.tryEmit(
+                    "[Read] ${characteristic.uuid} → Hex: $hex | Text: $text"
+                )
             }
+
             gattOperationComplete()
         }
 
@@ -411,34 +494,96 @@ class BluetoothService : Service() {
                 val started = bluetoothGatt?.discoverServices() == true
                 if (!started) {
                     currentState = BleState.FAILED
+                    connectionSecurity =
+                        ConnectionSecurity.UNKNOWN
                     bleNotificationManager.updateNotification("Service discovery failed to start")
                     disconnect()
                 }
             } catch (_: SecurityException) {
                 currentState = BleState.FAILED
+                connectionSecurity =
+                    ConnectionSecurity.UNKNOWN
                 bleNotificationManager.updateNotification("Permission error discovering services")
                 disconnect()
             }
         }, 600)
     }
 
-    private fun setupCharacteristics(gatt: BluetoothGatt) {
-        val services = gatt.services ?: return
-        _messages.tryEmit("[System] Found ${services.size} services")
-        for (service in services) {
-            _messages.tryEmit("[Service] ${BleGattRegistry.identifyService(service.uuid.toString())}\n${service.uuid}")
-            for (characteristic in service.characteristics) {
-                _messages.tryEmit("[Characteristic] ${BleGattRegistry.identifyCharacteristic(characteristic.uuid.toString())}\n${characteristic.uuid}")
-                val props = characteristic.properties
-                val uuid = characteristic.uuid.toString().lowercase()
+    private fun setupCharacteristics(
+        gatt: BluetoothGatt
+    ) {
+        val services =
+            gatt.services ?: return
 
-                if (BlePeripheralPolicy.shouldAutoSubscribe(characteristic)) {
-                    enqueue { enableNotifications(characteristic) }
+        _messages.tryEmit(
+            "[System] Found ${services.size} services"
+        )
+
+        for (service in services) {
+
+            _messages.tryEmit(
+                "[Service] ${
+                    BleGattRegistry.identifyService(
+                        service.uuid.toString()
+                    )
+                }\n${service.uuid}"
+            )
+
+            for (characteristic in service.characteristics) {
+
+                _messages.tryEmit(
+                    "[Characteristic] ${
+                        BleGattRegistry.identifyCharacteristic(
+                            characteristic.uuid.toString()
+                        )
+                    }\n${characteristic.uuid}"
+                )
+
+                val uuid =
+                    characteristic.uuid
+                        .toString()
+                        .lowercase()
+
+                if (
+                    BlePeripheralPolicy.shouldAutoSubscribe(
+                        characteristic
+                    )
+                ) {
+                    enqueue {
+                        enableNotifications(
+                            characteristic
+                        )
+                    }
                 }
 
-                if (BlePeripheralPolicy.shouldAutoRead(uuid)) {
+                if (
+                    characteristic.uuid ==
+                    batteryCharacteristicUuid
+                ) {
                     enqueue {
-                        try { gatt.readCharacteristic(characteristic) } catch (_: SecurityException) { gattOperationComplete() }
+                        try {
+                            gatt.readCharacteristic(
+                                characteristic
+                            )
+                        } catch (_: SecurityException) {
+                            gattOperationComplete()
+                        }
+                    }
+                }
+
+                else if (
+                    BlePeripheralPolicy.shouldAutoRead(
+                        uuid
+                    )
+                ) {
+                    enqueue {
+                        try {
+                            gatt.readCharacteristic(
+                                characteristic
+                            )
+                        } catch (_: SecurityException) {
+                            gattOperationComplete()
+                        }
                     }
                 }
             }
@@ -510,6 +655,8 @@ class BluetoothService : Service() {
             bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } catch (_: SecurityException) {
             currentState = BleState.FAILED
+            connectionSecurity =
+                ConnectionSecurity.UNKNOWN
             bleNotificationManager.updateNotification("Bluetooth permission denied")
         }
     }
@@ -527,6 +674,8 @@ class BluetoothService : Service() {
             bluetoothGatt = null
             connectedDeviceName = null
             connectedDeviceAddress = null
+            connectionSecurity =
+                ConnectionSecurity.UNKNOWN
             currentState = BleState.DISCONNECTED
             bleNotificationManager.updateNotification("Disconnected")
             isDisconnecting = false
@@ -597,6 +746,9 @@ class BluetoothService : Service() {
     }
 
     private fun cleanUp() {
+        _batteryLevel.value = null
+        connectionSecurity =
+            ConnectionSecurity.UNKNOWN
         synchronized(gattQueue) { gattQueue.clear() }
         isGattBusy.set(false)
         subscribedCharacteristics.clear()
