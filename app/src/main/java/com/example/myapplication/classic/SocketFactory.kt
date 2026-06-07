@@ -2,7 +2,7 @@ package com.example.myapplication.classic
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
-import android.util.Log
+import com.example.myapplication.util.BluetoothConnectionException
 import java.io.IOException
 import java.util.UUID
 data class SocketResult(
@@ -14,15 +14,18 @@ object SocketFactory {
     private val sppUUID = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
     fun createSocket(device: BluetoothDevice): SocketResult {
 
+        val errors = mutableListOf<String>()
+
         try {
-            log("Trying insecure RFCOMM...")
+
+
 
             val insecureSocket =
                 device.createInsecureRfcommSocketToServiceRecord(sppUUID)
 
             insecureSocket.connect()
 
-            log("Insecure RFCOMM success")
+
 
             return SocketResult(
                 socket = insecureSocket,
@@ -31,18 +34,23 @@ object SocketFactory {
 
         } catch (e: IOException) {
 
-            log("Insecure RFCOMM failed: ${e.message}")
+            errors.add(
+                "Insecure RFCOMM: ${e.message}"
+            )
+
+
         }
 
         try {
-            log("Trying secure RFCOMM...")
+
+
 
             val secureSocket =
                 device.createRfcommSocketToServiceRecord(sppUUID)
 
             secureSocket.connect()
 
-            log("Secure RFCOMM success")
+
 
             return SocketResult(
                 socket = secureSocket,
@@ -51,19 +59,37 @@ object SocketFactory {
 
         } catch (e: IOException) {
 
-            log("Secure RFCOMM failed: ${e.message}")
+            errors.add(
+                "Secure RFCOMM: ${e.message}"
+            )
+
+
         }
 
-        log("Trying reflection fallback...")
+        try {
 
-        val fallbackSocket = createFallbackSocket(device)
 
-        fallbackSocket.connect()
 
-        return SocketResult(
-            socket = fallbackSocket,
-            security = ConnectionSecurity.UNKNOWN
-        )
+            val fallbackSocket =
+                createFallbackSocket(device)
+
+            fallbackSocket.connect()
+
+            return SocketResult(
+                socket = fallbackSocket,
+                security = ConnectionSecurity.UNKNOWN
+            )
+
+        } catch (e: Exception) {
+
+            errors.add(
+                "Fallback RFCOMM: ${e.message}"
+            )
+
+            throw BluetoothConnectionException(
+                errors.joinToString("\n")
+            )
+        }
     }
     private fun createFallbackSocket(
         device: BluetoothDevice
@@ -75,11 +101,5 @@ object SocketFactory {
                 Int::class.javaPrimitiveType
             )
             .invoke(device, 1) as BluetoothSocket
-    }
-    private fun log(message: String) {
-        Log.d(
-            "ClassicConnectionManager",
-            message
-        )
     }
 }

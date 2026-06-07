@@ -492,7 +492,7 @@ class MainActivity : AppCompatActivity() {
             globalUiStateManager = globalUiStateManager,
             onStartBleScan = { bleScanManager.start() },
             getConnectedDeviceName = { bluetoothService?.connectedDeviceName },
-            getCurrentBleState = { bluetoothService?.currentState },
+
             isPendingRefresh = { pendingRefresh },
             clearPendingRefresh = { pendingRefresh = false },
             getActiveTab = { activeTab },

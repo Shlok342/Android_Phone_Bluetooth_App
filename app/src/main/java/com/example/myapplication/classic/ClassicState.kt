@@ -31,6 +31,14 @@ sealed class FailureReason {
 
     object MaxReconnectAttempts : FailureReason()
 
+    object AuthenticationFailed : FailureReason()
+
+    object PairingRejected : FailureReason()
+
+    object BondingFailed : FailureReason()
+
+    object DeviceRefusedConnection : FailureReason()
+
     data class Unknown(
         val message: String
     ) : FailureReason()

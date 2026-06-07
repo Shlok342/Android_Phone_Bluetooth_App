@@ -24,6 +24,7 @@ import com.example.myapplication.classic.BatteryErrorProfile
 import com.example.myapplication.util.ConnectionFeedbackHelper
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import androidx.core.graphics.toColorInt
 
 class ClassicUiController (
     private val activity: AppCompatActivity,
@@ -51,10 +52,10 @@ class ClassicUiController (
     // 2. UPDATED: Returns a colored color integer based on battery health
     private fun getBatteryColor(level: Int, isError: Boolean): Int {
         return when {
-            isError -> Color.parseColor("#FFB74D") // Amber for Stale/Error
-            level <= 15 -> Color.parseColor("#EF5350") // Red for Low Battery
-            level <= 30 -> Color.parseColor("#FFA726") // Orange for Medium-Low
-            else -> Color.parseColor("#66BB6A")        // Green for Good
+            isError -> "#FFB74D".toColorInt() // Amber for Stale/Error
+            level <= 15 -> "#EF5350".toColorInt() // Red for Low Battery
+            level <= 30 -> "#FFA726".toColorInt() // Orange for Medium-Low
+            else -> "#66BB6A".toColorInt()        // Green for Good
         }
     }
 
@@ -130,11 +131,33 @@ class ClassicUiController (
             is ClassicState.FAILED -> {
                 val reasonStr = when (state.reason) {
                     FailureReason.Timeout -> "Timed out"
-                    FailureReason.MaxReconnectAttempts -> "Reconnect limit reached"
-                    FailureReason.ConnectionLost -> "Connection lost"
-                    FailureReason.PermissionDenied -> "Permission denied"
-                    FailureReason.SocketClosed -> "Socket closed"
-                    is FailureReason.Unknown -> state.reason.message
+
+                    FailureReason.MaxReconnectAttempts ->
+                        "Reconnect limit reached"
+
+                    FailureReason.ConnectionLost ->
+                        "Connection lost"
+
+                    FailureReason.PermissionDenied ->
+                        "Permission denied"
+
+                    FailureReason.SocketClosed ->
+                        "Socket closed"
+
+                    FailureReason.AuthenticationFailed ->
+                        "Incorrect PIN or authentication failed."
+
+                    FailureReason.PairingRejected ->
+                        "Pairing request was rejected."
+
+                    FailureReason.BondingFailed ->
+                        "Pairing failed. Verify the PIN and try again."
+
+                    FailureReason.DeviceRefusedConnection ->
+                        "The device refused the connection."
+
+                    is FailureReason.Unknown ->
+                        state.reason.message
                 }
                 "❌ Classic: $reasonStr"
             }

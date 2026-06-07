@@ -199,7 +199,17 @@ class ClassicConnectionManager(private val appContext: Context) {
         updateState(ClassicState.CONNECTING)
         startConnectionTimeout()
 
-        connectJob = managerScope.launch {
+        connectJob = managerScope.launch  {
+            val initialBondState =
+                try {
+                    if (hasConnectPermission()) {
+                        device.bondState
+                    } else {
+                        BluetoothDevice.BOND_NONE
+                    }
+                } catch (_: SecurityException) {
+                    BluetoothDevice.BOND_NONE
+                }
             try {
                 if (!hasConnectPermission()) {
                     cancelConnectionTimeout()
@@ -218,6 +228,7 @@ class ClassicConnectionManager(private val appContext: Context) {
                     // Log the error or gracefully degrade the feature.
                     e.printStackTrace()
                 }
+
                 val socketResult =
                     SocketFactory.createSocket(device)
 
@@ -233,15 +244,99 @@ class ClassicConnectionManager(private val appContext: Context) {
                 outputStream =
                     socketResult.socket.outputStream
                 onConnected()
-            } catch (_: Exception) {
+            } catch(e:Exception){
+
+                val currentBondState =
+                    try {
+                        if (hasConnectPermission()) {
+                            device.bondState
+                        } else {
+                            BluetoothDevice.BOND_NONE
+                        }
+                    } catch (_: SecurityException) {
+                        BluetoothDevice.BOND_NONE
+                    }
+                val errorMessage =
+             e.message?.lowercase() ?: ""
+                if (
+                    initialBondState != BluetoothDevice.BOND_BONDED &&
+                    currentBondState == BluetoothDevice.BOND_NONE
+                ) {
+
+                    cancelConnectionTimeout()
+
+                    updateState(
+                        ClassicState.FAILED(
+                            FailureReason.BondingFailed
+                        )
+                    )
+
+                    logEvent(
+                        "Pairing/Bonding failed before connection could be established."
+                    )
+
+                    return@launch
+                }
+            val failureReason =
+                when {
+
+                    "authentication" in errorMessage ->
+                        FailureReason.AuthenticationFailed
+
+                    "incorrect pin" in errorMessage ->
+                        FailureReason.AuthenticationFailed
+
+                    "pin" in errorMessage ->
+                        FailureReason.AuthenticationFailed
+
+                    "bond" in errorMessage ->
+                        FailureReason.BondingFailed
+
+                    "pair" in errorMessage ->
+                        FailureReason.PairingRejected
+
+                    "refused" in errorMessage ->
+                        FailureReason.DeviceRefusedConnection
+
+                    else ->
+                        FailureReason.Unknown(
+                            e.message ?: "Unknown connection error"
+                        )
+                }
                 cancelConnectionTimeout()
-                if (isActive &&
-                    _state.value !is ClassicState.RECONNECTING &&
-                    _state.value !is ClassicState.FAILED) {
+
+                updateState(
+                    ClassicState.FAILED(
+                        failureReason
+                    )
+                )
+
+                if (isActive) {
                     reconnectScheduler.handleConnectionFailure(device)
                 }
-            }
-        }
+                logEvent(
+                    when (failureReason) {
+
+                        FailureReason.AuthenticationFailed ->
+                            "Authentication failed. Possible incorrect PIN/passkey."
+
+                        FailureReason.PairingRejected ->
+                            "Pairing request was rejected."
+
+                        FailureReason.BondingFailed ->
+                            "Bluetooth bonding failed."
+
+                        FailureReason.DeviceRefusedConnection ->
+                            "Remote device refused the connection."
+
+                        is FailureReason.Unknown ->
+                            "Connection failed: ${failureReason.message}"
+
+                        else ->
+                            "Connection failed."
+                    }
+                )
+        }}
     }
 
 

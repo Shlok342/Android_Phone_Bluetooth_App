@@ -23,7 +23,6 @@ class BleUiController(
     private val globalUiStateManager: GlobalUiStateManager,
     private val onStartBleScan: () -> Unit,
     private val getConnectedDeviceName: () -> String?,
-    private val getCurrentBleState: () -> BleState?,
     private val isPendingRefresh: () -> Boolean,
     private val clearPendingRefresh: () -> Unit,
     private val getActiveTab: () -> ActiveTab,
@@ -37,9 +36,9 @@ class BleUiController(
     // 1. NEW: Helper to determine color based on percentage
     private fun getBatteryColor(level: Int): Int {
         return when {
-            level <= 15 -> Color.parseColor("#EF5350") // Red
-            level <= 30 -> Color.parseColor("#FFA726") // Orange
-            else -> Color.parseColor("#66BB6A")        // Green
+            level <= 15 -> "#EF5350".toColorInt() // Red
+            level <= 30 -> "#FFA726".toColorInt() // Orange
+            else -> "#66BB6A".toColorInt()        // Green
         }
     }
 

@@ -50,7 +50,6 @@ class ClassicBluetoothService : Service() {
     private val channelId = "classic_bt_channel"
     private val notifId = 2
 
-
     private var _connectionManager:
             ClassicConnectionManager? = null
     private var _fileTransferManager: ClassicFileTransferManager? = null
@@ -240,7 +239,58 @@ class ClassicBluetoothService : Service() {
 
         serviceScope.launch {
             connectionManager.connectionInfo.collect { info ->
-                DeviceInsightManager.onAppEvent("Classic Connection: State=${info.state}, Device=${info.deviceName}")
+                val stateText = when (val state = info.state) {
+
+                    ClassicState.IDLE ->
+                        "Ready"
+
+                    ClassicState.CONNECTING ->
+                        "Connecting"
+
+                    ClassicState.CONNECTED ->
+                        "Connected"
+
+                    ClassicState.DISCONNECTED ->
+                        "Disconnected"
+
+                    is ClassicState.RECONNECTING ->
+                        "Reconnecting (${state.attempt}/3)"
+
+                    is ClassicState.FAILED ->
+                        when (state.reason) {
+
+                            FailureReason.Timeout ->
+                                "Connection timed out"
+
+                            FailureReason.ConnectionLost ->
+                                "Connection lost"
+
+                            FailureReason.PermissionDenied ->
+                                "Bluetooth permission denied"
+
+                            FailureReason.SocketClosed ->
+                                "Socket closed"
+
+                            FailureReason.MaxReconnectAttempts ->
+                                "Reconnect limit reached"
+
+                            FailureReason.AuthenticationFailed ->
+                                "Incorrect PIN or authentication failed"
+
+                            FailureReason.PairingRejected ->
+                                "Pairing request rejected"
+
+                            FailureReason.BondingFailed ->
+                                "Pairing failed"
+
+                            FailureReason.DeviceRefusedConnection ->
+                                "Device refused connection"
+
+                            is FailureReason.Unknown ->
+                                "Connection failed"
+                        }
+                }
+                DeviceInsightManager.onAppEvent("Classic Connection: $stateText • Device=${info.deviceName}")
                 if (info.state == ClassicState.CONNECTED) {
                     DeviceInsightManager.onAppEvent("Classic: Device ${info.deviceName} (${info.address}) Connected")
                     if (info.address.isNotEmpty()) {
@@ -295,7 +345,28 @@ class ClassicBluetoothService : Service() {
                                 FailureReason.MaxReconnectAttempts ->
                                     "Reconnect limit reached"
 
-                                else ->
+                                FailureReason.ConnectionLost ->
+                                    "Connection lost"
+
+                                FailureReason.PermissionDenied ->
+                                    "Bluetooth permission denied"
+
+                                FailureReason.SocketClosed ->
+                                    "Socket closed"
+
+                                FailureReason.AuthenticationFailed ->
+                                    "Authentication failed"
+
+                                FailureReason.PairingRejected ->
+                                    "Pairing rejected"
+
+                                FailureReason.BondingFailed ->
+                                    "Pairing failed"
+
+                                FailureReason.DeviceRefusedConnection ->
+                                    "Device refused connection"
+
+                                is FailureReason.Unknown ->
                                     "Connection failed"
                             }
                         }

@@ -172,7 +172,7 @@ class BluetoothService : Service() {
                             currentState = BleState.FAILED
                             connectionSecurity =
                                 ConnectionSecurity.UNKNOWN
-                            bleNotificationManager.updateNotification("Bonding failed")
+                            bleNotificationManager.updateNotification("Pairing failed. Verify PIN/passkey.")
                             disconnect()
                         }
                     }
@@ -215,6 +215,9 @@ class BluetoothService : Service() {
             DeviceInsightManager.onAppEvent("BLE GATT: Connection state changed. Status: $status, NewState: $newState")
 
             if (status != BluetoothGatt.GATT_SUCCESS) {
+                DeviceInsightManager.onAppEvent(
+                    "BLE RAW STATUS: $status"
+                )
                 try { gatt.close() } catch (_: SecurityException) {}
                 bluetoothGatt = null
                 if (status == 133 && gatt133Attempts < MAX133RETRIES && !isDisconnecting) {
@@ -238,7 +241,33 @@ class BluetoothService : Service() {
                 }
                 if (currentState == BleState.BONDING) return
                 cleanUp()
-                bleNotificationManager.updateNotification("Connection failed (status $status)")
+                val failureMessage = when (status) {
+
+                    5 ->
+                        "Authentication failed. Verify PIN/passkey."
+
+                    8 ->
+                        "Connection timed out."
+
+                    19 ->
+                        "Device disconnected unexpectedly."
+
+                    22 ->
+                        "Connection closed."
+
+                    133 ->
+                        "Bluetooth connection error."
+
+                    else ->
+                        "Connection failed."
+                }
+                DeviceInsightManager.onAppEvent(
+                    "BLE Failure: $failureMessage (status=$status)"
+                )
+
+                bleNotificationManager.updateNotification(
+                    failureMessage
+                )
                 currentState = BleState.FAILED
                 connectionSecurity =
                     ConnectionSecurity.UNKNOWN
