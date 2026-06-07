@@ -379,4 +379,7 @@ class ClassicAudioProfileManager(
 
         managerScope.cancel()
     }
+    fun setIntentionalDisconnect(value: Boolean) {
+        isIntentionalDisconnect = value
+    }
 }

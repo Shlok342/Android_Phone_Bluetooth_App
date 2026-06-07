@@ -20,6 +20,7 @@ import android.provider.MediaStore
 import kotlinx.coroutines.launch // Added for observeFlows
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -36,7 +37,7 @@ class ClassicBluetoothService : Service() {
     }
 
     private val binder = LocalBinder()
-
+    private var audioDeviceConnector: AudioDeviceConnector? = null
     // Using a SupervisorJob allows child coroutines to fail independently
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastNotifTime = 0L
@@ -153,6 +154,21 @@ class ClassicBluetoothService : Service() {
         get() = requireNotNull(_connectionManager) {
             "ConnectionManager not initialized"
         }
+    fun fullDisconnect() {
+        val address = _connectionManager?.connectedDeviceAddress
+        DeviceInsightManager.onAppEvent("UI: Initiating full disconnect for Classic ($address)")
+        _audioProfileManager?.setIntentionalDisconnect(true)
+        _connectionManager?.disconnect()
+        if (!address.isNullOrEmpty()) {
+            try {
+                val device = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
+                    .adapter.getRemoteDevice(address)
+                audioDeviceConnector?.disconnectIfAudio(device)
+                // Notify insight manager immediately
+                DeviceInsightManager.onDisconnected(address, "User Request")
+            } catch (_: Exception) {}
+        }
+    }
 
     override fun onBind(intent: Intent): IBinder = binder
 
@@ -177,6 +193,7 @@ class ClassicBluetoothService : Service() {
         _audioProfileManager =
             ClassicAudioProfileManager(this)
         _connectionManager = ClassicConnectionManager(this)
+        audioDeviceConnector = AudioDeviceConnector(this)
         _fileTransferManager = ClassicFileTransferManager(
             connectionManager = _connectionManager!!,
             context = this,
@@ -207,6 +224,8 @@ class ClassicBluetoothService : Service() {
         // Safeguard against uninitialized connectionManager if onCreate failed early
         _fileTransferManager?.reset()
         _fileTransferManager = null
+        audioDeviceConnector?.destroy()
+        audioDeviceConnector = null
         _connectionManager?.let {
             it.disconnect()
             it.destroy()
@@ -223,8 +242,30 @@ class ClassicBluetoothService : Service() {
             connectionManager.connectionInfo.collect { info ->
                 DeviceInsightManager.onAppEvent("Classic Connection: State=${info.state}, Device=${info.deviceName}")
                 if (info.state == ClassicState.CONNECTED) {
-
                     DeviceInsightManager.onAppEvent("Classic: Device ${info.deviceName} (${info.address}) Connected")
+                    if (info.address.isNotEmpty()) {
+                        try {
+                            val device = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
+                                .adapter.getRemoteDevice(info.address)
+                            DeviceInsightManager.onDeviceConnected(device, "Classic", this@ClassicBluetoothService)
+                        } catch (_: Exception) {}
+                    }
+                } else if (info.state == ClassicState.DISCONNECTED) {
+                    if (info.address.isNotEmpty()) {
+                        DeviceInsightManager.onDisconnected(info.address, "Standard Disconnect")
+                    }
+                } else if (info.state is ClassicState.FAILED) {
+                    if (info.address.isNotEmpty()) {
+                        DeviceInsightManager.onDisconnected(info.address, "Failure: ${info.state.reason}")
+                    }
+                }
+
+                if (info.state == ClassicState.CONNECTING && info.address.isNotEmpty()) {
+                    try {
+                        val btAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                        val device = btAdapter.getRemoteDevice(info.address)
+                        audioDeviceConnector?.connectIfAudio(device)
+                    } catch (_: Exception) {}
                 }
                 updateNotification(
                     when (val state = info.state) {

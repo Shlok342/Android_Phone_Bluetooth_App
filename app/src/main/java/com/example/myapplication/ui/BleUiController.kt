@@ -2,6 +2,9 @@ package com.example.myapplication.ui
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
 import android.view.*
 import android.widget.*
 import androidx.core.graphics.toColorInt
@@ -12,6 +15,8 @@ import com.example.myapplication.R
 import com.example.myapplication.ble.BleState
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.classic.ConnectionSecurity
+import com.example.myapplication.util.ConnectionFeedbackHelper
+
 class BleUiController(
     private val activity: AppCompatActivity,
     private val statusText: TextView,
@@ -29,7 +34,22 @@ class BleUiController(
     private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var delayedStatusRunnable: Runnable? = null
 
-    fun updateStatusUi(state: BleState, address: String,security: ConnectionSecurity) {
+    // 1. NEW: Helper to determine color based on percentage
+    private fun getBatteryColor(level: Int): Int {
+        return when {
+            level <= 15 -> Color.parseColor("#EF5350") // Red
+            level <= 30 -> Color.parseColor("#FFA726") // Orange
+            else -> Color.parseColor("#66BB6A")        // Green
+        }
+    }
+
+    // 2. UPDATED: Signature now includes batteryLevel
+    fun updateStatusUi(
+        state: BleState,
+        address: String,
+        security: ConnectionSecurity,
+        batteryLevel: Int? = null
+    ) {
         // ALWAYS cancel pending timers when ANY state change occurs
         cancelDelayedStatus()
 
@@ -41,39 +61,65 @@ class BleUiController(
             ConnectionSecurity.SECURE -> "🔒 "
             else -> ""
         }
-        val statusMsg = when (state) {
+
+        // 3. UPDATED: Logic to build colored text objects
+        val finalMessage: CharSequence = when (state) {
             BleState.IDLE -> activity.getString(R.string.not_connected)
-            
+
             BleState.CONNECTING -> {
                 startDelayedStatus(activity.getString(R.string.connection_taking_longer_than_expected), 6000L)
                 "Status: Connecting to $name..."
             }
-            
+
             BleState.BONDING -> {
                 startDelayedStatus(activity.getString(R.string.taking_longer_than_expected_may_disconnect), 4000L)
                 activity.getString(R.string.pairing_new) + " " + name
             }
-            
+
             BleState.DISCOVERING_SERVICES -> {
                 startDelayedStatus("Setting up services...", 5000L)
                 activity.getString(R.string.paired_connecting)
             }
 
-            BleState.READY ->
-                "${securityIcon}🟢 BLE: Connected to $name ($address)"
-            
+            BleState.READY -> {
+                ConnectionFeedbackHelper.onConnected(statusText)
+
+                // Build the base string
+                val baseText = "${securityIcon}🟢 BLE: Connected to $name ($address)"
+                val sb = SpannableStringBuilder(baseText)
+
+                // Append and color the battery if available
+                if (batteryLevel != null) {
+                    val batText = " [🔋 $batteryLevel%]"
+                    val color = getBatteryColor(batteryLevel)
+
+                    val start = sb.length
+                    sb.append(batText)
+
+                    // Apply color only to the battery segment
+                    sb.setSpan(
+                        ForegroundColorSpan(color),
+                        start,
+                        sb.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                sb // Return the SpannableStringBuilder
+            }
+
             BleState.DISCONNECTED -> {
+                ConnectionFeedbackHelper.onDisconnected(statusText)
                 if (isPendingRefresh()) {
                     clearPendingRefresh()
                     uiHandler.postDelayed({ onStartBleScan() }, 700)
                 }
                 "🔴 Disconnected"
             }
-            
+
             BleState.FAILED -> "❌ Connection Failed"
         }
-        
-        animateStatusText(statusText, statusMsg)
+
+        animateStatusText(statusText, finalMessage)
 
         if (state == BleState.DISCONNECTED || state == BleState.FAILED) {
             if (getActiveTab() == ActiveTab.BLE) onDismissDataSheet()
@@ -92,8 +138,10 @@ class BleUiController(
         delayedStatusRunnable = null
     }
 
-    private fun animateStatusText(tv: TextView, newText: String) {
-        if (tv.text == newText) return
+    // 4. UPDATED: Accepts CharSequence to support both String and SpannableStringBuilder
+    private fun animateStatusText(tv: TextView, newText: CharSequence) {
+        if (tv.text.toString() == newText.toString()) return
+
         tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
             tv.text = newText
             tv.translationY = 8f

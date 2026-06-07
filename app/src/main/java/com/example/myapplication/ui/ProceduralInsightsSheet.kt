@@ -56,7 +56,7 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
 
                     layoutManager = LinearLayoutManager(parent.context)
 
-                    isNestedScrollingEnabled = false
+                    isNestedScrollingEnabled = true
                 }
                 return object : RecyclerView.ViewHolder(rv) {}
             }

@@ -21,7 +21,9 @@ import java.util.Locale
 data class ConnectionInfo(
     val state: ClassicState,
     val address: String = "",
-    val deviceName: String = ""
+    val deviceName: String = "",
+    val batteryLevel: Int = -1,
+    val batteryError: BatteryErrorProfile = BatteryErrorProfile.None
 )
 
 class ClassicConnectionManager(private val appContext: Context) {
@@ -50,6 +52,11 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── State ─────────────────────────────────────────────
 
+    // Add this alongside your other properties inside ClassicConnectionManager
+    private val batteryMonitor = BluetoothBatteryMonitor(appContext)
+
+    // Expose the raw battery stream externally if needed
+    val batteryLevel: StateFlow<Int> = batteryMonitor.batteryLevel
 
     private val _state =
         MutableStateFlow<ClassicState>(
@@ -148,7 +155,9 @@ class ClassicConnectionManager(private val appContext: Context) {
         _connectionInfo.value = ConnectionInfo(
             state      = state,
             address    = connectedDeviceAddress ?: "",
-            deviceName = connectedDeviceName ?: ""
+            deviceName = connectedDeviceName ?: "",
+            batteryLevel = batteryMonitor.batteryLevel.value,
+            batteryError = batteryMonitor.errorProfile.value
         )
     }
 
@@ -242,6 +251,22 @@ class ClassicConnectionManager(private val appContext: Context) {
     private fun onConnected() {
         logEvent("Connected to $connectedDeviceName ($connectedDeviceAddress)")
         cancelConnectionTimeout()
+        lastDevice?.let { device ->
+            batteryMonitor.startMonitoring(device)
+
+            // Also fire off a quick lifecycle collection to sync the internal flow with connection info
+            managerScope.launch {
+                batteryMonitor.batteryLevel.collect { currentLevel ->
+                    // Forces the UI state model to update whenever a new percentage lands
+                    updateState(_state.value)
+                }
+
+            }
+            managerScope.launch {
+                // Triggers state rebuild if an API block or stale profile modifies the state
+                batteryMonitor.errorProfile.collect { _ -> updateState(_state.value) }
+            }
+        }
         reconnectScheduler.reset()
         lastReadTime        = System.currentTimeMillis()
 
@@ -351,6 +376,7 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Internal Cleanup ──────────────────────────────────
     private fun disconnectInternal() {
+        batteryMonitor.stopMonitoring()
         cancelConnectionTimeout()
         inactivityTimeoutJob?.cancel(); inactivityTimeoutJob = null
         try { bluetoothSocket?.close() } catch (_: IOException) {}

@@ -1,7 +1,7 @@
 package com.example.myapplication.ui
 
 import android.Manifest
-
+import me.weishu.reflection.Reflection
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -57,7 +57,10 @@ import com.google.android.material.button.MaterialButton
 
 
 class MainActivity : AppCompatActivity() {
-
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(base)
+        Reflection.unseal(base) // Bypasses hidden API blocks for the runtime session
+    }
     // ─── UI State ─────────────────────────────────────────────────────────────
     private lateinit var ui: UiComponents
 
@@ -373,14 +376,11 @@ class MainActivity : AppCompatActivity() {
                 if (activeTab == ActiveTab.BLE) bleScanManager.stop() else stopClassicScan()
             },
             onDisconnect = {
-                DeviceInsightManager.onAppEvent("UI: Disconnect requested")
-                if (activeTab == ActiveTab.BLE) {
-                    SystemTimeline.log("⏏ BLE disconnect requested")
-                    bluetoothService?.disconnect()
-                } else {
-                    SystemTimeline.log("⏏ Classic disconnect requested")
-                    classicService?.connectionManager?.disconnect()
-                }
+                DeviceInsightManager.onAppEvent("UI: Global Disconnect requested")
+                // Parallel Disconnect: Clear both systems regardless of active tab
+                SystemTimeline.log("⏏ Initiating global system disconnect")
+                bluetoothService?.disconnect()
+                classicService?.fullDisconnect()
             },
             onTabBle = {
                 DeviceInsightManager.onAppEvent("UI: Switched to BLE tab")

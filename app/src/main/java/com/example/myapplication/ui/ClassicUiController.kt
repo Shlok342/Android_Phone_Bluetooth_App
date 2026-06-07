@@ -1,6 +1,10 @@
 package com.example.myapplication.ui
 
+import android.graphics.Color
 import android.graphics.Typeface
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -16,6 +20,8 @@ import com.example.myapplication.classic.TransferDirection
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.dp
 import com.example.myapplication.classic.ConnectionSecurity
+import com.example.myapplication.classic.BatteryErrorProfile
+import com.example.myapplication.util.ConnectionFeedbackHelper
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 
@@ -30,8 +36,11 @@ class ClassicUiController (
     private val onDismissDataSheet: () -> Unit,
     private val getConnectedDeviceName: () -> String?
 ){
-    private fun animateStatusText(tv: TextView, newText: String) {
-        if (tv.text == newText) return
+    // 1. UPDATED: Accepts CharSequence now to support Colors/Spannables
+    private fun animateStatusText(tv: TextView, newText: CharSequence) {
+        // Compare string content to avoid loops, as CharSequence equals is strict
+        if (tv.text.toString() == newText.toString()) return
+
         tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
             tv.text = newText
             tv.translationY = 8f
@@ -39,41 +48,99 @@ class ClassicUiController (
         }.start()
     }
 
-    fun updateClassicStatusUi(state: ClassicState, address: String,security: ConnectionSecurity) {
-        // Delegate background management
+    // 2. UPDATED: Returns a colored color integer based on battery health
+    private fun getBatteryColor(level: Int, isError: Boolean): Int {
+        return when {
+            isError -> Color.parseColor("#FFB74D") // Amber for Stale/Error
+            level <= 15 -> Color.parseColor("#EF5350") // Red for Low Battery
+            level <= 30 -> Color.parseColor("#FFA726") // Orange for Medium-Low
+            else -> Color.parseColor("#66BB6A")        // Green for Good
+        }
+    }
+
+    // 3. UPDATED: Main UI Logic with Spannable Building
+    fun updateClassicStatusUi(
+        state: ClassicState,
+        address: String,
+        security: ConnectionSecurity,
+        batteryLevel: Int = -1,
+        batteryError: BatteryErrorProfile = BatteryErrorProfile.None
+    ) {
         globalUiStateManager.updateClassicState(state)
 
         val name = (if (address.isNotEmpty()) DeviceNameStore.get(activity, address) else null)
             ?: getConnectedDeviceName()
             ?: "Device"
+
         val securityIcon = when (security) {
             ConnectionSecurity.SECURE -> "🔒 "
             ConnectionSecurity.INSECURE -> "🔓 "
             ConnectionSecurity.UNKNOWN -> ""
         }
-        val statusMsg = when (state) {
+
+        // Build the final text object
+        val finalMessage: CharSequence = when (state) {
             ClassicState.IDLE -> "Classic: Idle"
-            
             ClassicState.CONNECTING -> "Classic: Connecting to $name..."
-            
-            ClassicState.CONNECTED -> "${securityIcon}🟢 Classic: Connected to $name ($address)"
-            
-            ClassicState.DISCONNECTED -> "🔴 Classic: Disconnected"
-            
-            is ClassicState.RECONNECTING -> "🔄 Classic: Reconnecting… (${state.attempt}/${ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS})"
-            
-            is ClassicState.FAILED -> {
-                when (state.reason) {
-                    FailureReason.Timeout -> "⏱ Classic: Timed out"
-                    FailureReason.MaxReconnectAttempts -> "❌ Classic: Reconnect limit reached"
-                    FailureReason.ConnectionLost -> "❌ Classic: Connection lost"
-                    FailureReason.PermissionDenied -> "❌ Classic: Permission denied"
-                    FailureReason.SocketClosed -> "❌ Classic: Socket closed"
-                    is FailureReason.Unknown -> "❌ Classic: ${state.reason.message}"
+
+            ClassicState.CONNECTED -> {
+                ConnectionFeedbackHelper.onConnected(classicStatusText)
+
+                // Start with the base connection string
+                val baseText = "${securityIcon}🟢 Classic: Connected to $name ($address)"
+                val sb = SpannableStringBuilder(baseText)
+
+                // Determine Battery Text & Color
+                if (batteryError !is BatteryErrorProfile.None || batteryLevel != -1) {
+                    val (batText, color) = when (batteryError) {
+                        is BatteryErrorProfile.None -> {
+                            // Standard Valid Battery
+                            val c = getBatteryColor(batteryLevel, false)
+                            Pair(" [🔋 $batteryLevel%]", c)
+                        }
+                        is BatteryErrorProfile.StaleDataWarning -> {
+                            // Stale Data (Amber)
+                            val displayLevel = if(batteryLevel > -1) "$batteryLevel%?" else "Stale"
+                            Pair(" [⏳ $displayLevel]", getBatteryColor(-1, true))
+                        }
+                        is BatteryErrorProfile.ReflectionApiBlocked -> Pair(" [⚠️ API Blocked]", Color.GRAY)
+                        is BatteryErrorProfile.DeviceUnsupported -> Pair(" [⚠️ Unsupported]", Color.GRAY)
+                    }
+
+                    // Append the battery text
+                    val start = sb.length
+                    sb.append(batText)
+
+                    // Paint ONLY the battery part
+                    sb.setSpan(
+                        ForegroundColorSpan(color),
+                        start,
+                        sb.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
                 }
+                sb // Return the built spannable
+            }
+
+            ClassicState.DISCONNECTED -> {
+                ConnectionFeedbackHelper.onDisconnected(classicStatusText)
+                "🔴 Classic: Disconnected"
+            }
+            is ClassicState.RECONNECTING -> "🔄 Classic: Reconnecting… (${state.attempt}/${ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS})"
+            is ClassicState.FAILED -> {
+                val reasonStr = when (state.reason) {
+                    FailureReason.Timeout -> "Timed out"
+                    FailureReason.MaxReconnectAttempts -> "Reconnect limit reached"
+                    FailureReason.ConnectionLost -> "Connection lost"
+                    FailureReason.PermissionDenied -> "Permission denied"
+                    FailureReason.SocketClosed -> "Socket closed"
+                    is FailureReason.Unknown -> state.reason.message
+                }
+                "❌ Classic: $reasonStr"
             }
         }
-        animateStatusText(classicStatusText, statusMsg)
+
+        animateStatusText(classicStatusText, finalMessage)
 
         if (state == ClassicState.DISCONNECTED || state is ClassicState.FAILED) {
             if (getActiveTab() == ActiveTab.CLASSIC) onDismissDataSheet()
@@ -105,16 +172,16 @@ class ClassicUiController (
     fun showFeaturesSheet() {
         val sheet = BottomSheetDialog(activity)
         val container = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(32, 28, 32, 40) }
-        val title = TextView(activity).apply { 
+        val title = TextView(activity).apply {
             text = activity.getString(R.string.features)
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
             setTextColor(activity.getColor(R.color.color_text_primary))
-            setPadding(0, 0, 0, 20.dp(activity)) 
+            setPadding(0, 0, 0, 20.dp(activity))
         }
         container.addView(title)
 
-        val sendFileBtn = MaterialButton(activity).apply { 
+        val sendFileBtn = MaterialButton(activity).apply {
             text = activity.getString(R.string.send_file)
             textSize = 13f
             letterSpacing = 0.03f
@@ -124,7 +191,7 @@ class ClassicUiController (
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 10.dp(activity) }
             setOnClickListener {
                 sheet.dismiss()
-                if (isClassicConnected()) onSendFile() 
+                if (isClassicConnected()) onSendFile()
                 else Toast.makeText(activity, "File transfer requires a Classic connection", Toast.LENGTH_SHORT).show()
             }
         }
