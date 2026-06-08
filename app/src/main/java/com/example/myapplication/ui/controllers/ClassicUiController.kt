@@ -1,4 +1,4 @@
-package com.example.myapplication.ui
+package com.example.myapplication.ui.controllers
 
 import android.graphics.Color
 import android.graphics.Typeface
@@ -10,21 +10,23 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.example.myapplication.util.DeviceNameStore
+import androidx.core.graphics.toColorInt
 import com.example.myapplication.R
 import com.example.myapplication.classic.ClassicConnectionManager
-import com.example.myapplication.classic.ClassicState
-import com.example.myapplication.classic.FailureReason
-import com.example.myapplication.classic.FileTransferState
-import com.example.myapplication.classic.TransferDirection
+import com.example.myapplication.classic.file_transfer.FileTransferState
+import com.example.myapplication.classic.file_transfer.TransferDirection
+import com.example.myapplication.classic.helpers.BatteryErrorProfile
+import com.example.myapplication.classic.helpers.ConnectionSecurity
 import com.example.myapplication.models.ActiveTab
+import com.example.myapplication.models.ClassicState
+import com.example.myapplication.models.FailureReason
 import com.example.myapplication.models.dp
-import com.example.myapplication.classic.ConnectionSecurity
-import com.example.myapplication.classic.BatteryErrorProfile
+import com.example.myapplication.ui.sheets.ProceduralInsightsSheet
 import com.example.myapplication.util.ConnectionFeedbackHelper
+import com.example.myapplication.util.DeviceNameStore
+import com.example.myapplication.util.GlobalUiStateManager
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-import androidx.core.graphics.toColorInt
 
 class ClassicUiController (
     private val activity: AppCompatActivity,

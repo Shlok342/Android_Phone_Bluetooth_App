@@ -1,11 +1,12 @@
 // Save as: com/example/myapplication/classic/BluetoothBatteryMonitor.kt
-package com.example.myapplication.classic
+package com.example.myapplication.classic.helpers
 
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.core.content.IntentCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +50,7 @@ class BluetoothBatteryMonitor(private val context: Context) {
             if (intent.action == ACTION_BATTERY_LEVEL_CHANGED) {
 
                 // Modern, type-safe Parcelable extraction
-                val device = androidx.core.content.IntentCompat.getParcelableExtra(
+                val device = IntentCompat.getParcelableExtra(
                     intent,
                     BluetoothDevice.EXTRA_DEVICE,
                     BluetoothDevice::class.java

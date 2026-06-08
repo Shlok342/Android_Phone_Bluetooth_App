@@ -1,21 +1,26 @@
-package com.example.myapplication.ui
+package com.example.myapplication.ui.controllers
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
-import android.view.*
-import android.widget.*
-import androidx.core.graphics.toColorInt
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.toColorInt
 import com.example.myapplication.R
 import com.example.myapplication.ble.BleState
+import com.example.myapplication.classic.helpers.ConnectionSecurity
 import com.example.myapplication.models.ActiveTab
-import com.example.myapplication.classic.ConnectionSecurity
 import com.example.myapplication.util.ConnectionFeedbackHelper
+import com.example.myapplication.util.GlobalUiStateManager
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 
 class BleUiController(
     private val activity: AppCompatActivity,
@@ -30,7 +35,7 @@ class BleUiController(
 ){
     private var bottomSheetDialog: BottomSheetDialog? = null
     private var bottomSheetList: LinearLayout? = null
-    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val uiHandler = Handler(Looper.getMainLooper())
     private var delayedStatusRunnable: Runnable? = null
 
     // 1. NEW: Helper to determine color based on percentage

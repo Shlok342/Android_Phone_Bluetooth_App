@@ -1,4 +1,5 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.messages
+
 import java.io.ByteArrayOutputStream
 import java.nio.charset.MalformedInputException
 

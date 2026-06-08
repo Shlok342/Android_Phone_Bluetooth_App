@@ -1,7 +1,8 @@
-package com.example.myapplication.ui
+package com.example.myapplication.ui.adapters
 
 import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
+import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,14 +12,14 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.graphics.toColorInt
-import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.R
-import com.example.myapplication.models.BleDeviceItem
-import com.google.android.material.button.MaterialButton
 import com.example.myapplication.insights.DeviceInsightManager
-import com.example.myapplication.util.FavoriteStore
+import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.FilterType
-import android.content.Context
+import com.example.myapplication.util.DeviceNameStore
+import com.example.myapplication.util.FavoriteStore
+import com.google.android.material.button.MaterialButton
+
 class DeviceAdapter(
     private val adapterContext: Context,
     private val devices: MutableList<BleDeviceItem>,
@@ -119,9 +120,9 @@ class DeviceAdapter(
         view.findViewById<TextView>(R.id.deviceAddress).text = item.address
 
         val signalText = view.findViewById<TextView>(R.id.deviceSignal)
-
+        val context= signalText.context
         signalText.text =
-            "📶 ${signalBars(item.rssi)} • ${signalLabel(item.rssi)}"
+            context.getString(R.string.rssi_bar, signalBars(item.rssi), signalLabel(item.rssi))
         signalText.setTextColor(
             when {
                 item.rssi >= -60 -> "#22C55E".toColorInt()

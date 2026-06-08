@@ -1,4 +1,4 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.messages
 
 sealed class ClassicMessage {
 

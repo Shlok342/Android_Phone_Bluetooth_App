@@ -13,6 +13,9 @@ import com.example.myapplication.R
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
 import com.example.myapplication.models.dp
+import com.example.myapplication.ui.adapters.ClassicDeviceAdapter
+import com.example.myapplication.ui.adapters.DeviceAdapter
+import com.example.myapplication.ui.sheets.DeviceSearchSheet
 import com.google.android.material.button.MaterialButton
 
 data class UiComponents(
@@ -257,7 +260,7 @@ object MainUiFactory {
         bleSearchBtn.setOnClickListener {
             DeviceSearchSheet(
                 context = activity,
-                onFilter = { query, byMac -> 
+                onFilter = { query, byMac ->
                     deviceAdapter.applyFilter(query, byMac)
                     bleClearFilterBtn.visibility = View.GONE
                 },
@@ -269,7 +272,7 @@ object MainUiFactory {
         classicSearchBtn.setOnClickListener {
             DeviceSearchSheet(
                 context = activity,
-                onFilter = { query, byMac -> 
+                onFilter = { query, byMac ->
                     classicAdapter.applyFilter(query, byMac)
                     classicClearFilterBtn.visibility = View.GONE
                 },

@@ -1,8 +1,10 @@
-package com.example.myapplication.ui
+package com.example.myapplication.ui.adapters
 
-
+import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
+import android.content.Context
+import android.content.pm.PackageManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,17 +14,15 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.toColorInt
-import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.R
 import com.example.myapplication.models.ClassicDeviceItem
-import com.google.android.material.button.MaterialButton
-import com.example.myapplication.util.FavoriteStore
 import com.example.myapplication.models.FilterType
-import android.content.Context
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
+import com.example.myapplication.util.DeviceNameStore
+import com.example.myapplication.util.FavoriteStore
+import com.google.android.material.button.MaterialButton
+
 class ClassicDeviceAdapter(
     private val adapterContext: Context,
     private val devices: List<ClassicDeviceItem>,
@@ -40,7 +40,7 @@ class ClassicDeviceAdapter(
     private var activeFilterType = FilterType.NONE
     private var bondedAddresses: Set<String> = emptySet()
 
-    
+
     private fun displayList(): List<ClassicDeviceItem> {
         val currentDevices = synchronized(devices) { devices.toList() }
         val currentBonded = bondedAddresses.toSet()

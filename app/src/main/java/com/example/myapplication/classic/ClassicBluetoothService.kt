@@ -25,6 +25,10 @@ import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
+import com.example.myapplication.classic.file_transfer.ClassicFileTransferManager
+import com.example.myapplication.models.ClassicState
+import com.example.myapplication.models.FailureReason
+import com.example.myapplication.classic.messages.ClassicMessage
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.ui.MainActivity
 import java.io.File

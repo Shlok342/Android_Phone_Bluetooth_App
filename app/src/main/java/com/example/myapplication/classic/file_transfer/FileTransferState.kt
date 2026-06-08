@@ -1,4 +1,4 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.file_transfer
 
 enum class TransferDirection {
     SEND,

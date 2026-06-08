@@ -1,4 +1,4 @@
-package com.example.myapplication.ble
+package com.example.myapplication.ble.scanners
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -9,8 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
-import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.insights.DeviceInsightManager
+import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.util.SystemTimeline
 
 class BleScanManager(

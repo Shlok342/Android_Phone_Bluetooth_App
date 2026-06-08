@@ -12,7 +12,7 @@ import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.core.graphics.toColorInt
 import com.example.myapplication.ble.BleState
-import com.example.myapplication.classic.ClassicState
+import com.example.myapplication.models.ClassicState
 
 class GlassmorphicBackgroundView @JvmOverloads constructor(
     context: Context,

@@ -1,4 +1,4 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.helpers
 
 enum class ConnectionSecurity {
     SECURE,

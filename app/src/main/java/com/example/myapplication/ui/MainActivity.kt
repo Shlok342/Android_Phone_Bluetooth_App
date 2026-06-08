@@ -1,7 +1,6 @@
 package com.example.myapplication.ui
 
 import android.Manifest
-import me.weishu.reflection.Reflection
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -18,7 +17,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.View
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,32 +30,34 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.myapplication.R
-import com.example.myapplication.util.SystemTimeline
-import com.example.myapplication.ble.BleScanManager
 import com.example.myapplication.ble.BleState
 import com.example.myapplication.ble.BluetoothService
+import com.example.myapplication.ble.scanners.BleScanManager
 import com.example.myapplication.classic.AudioProfileState
 import com.example.myapplication.classic.ClassicBluetoothService
 import com.example.myapplication.classic.ClassicConnectionManager
-import com.example.myapplication.classic.ClassicMessage
 import com.example.myapplication.classic.ClassicScanReceiver
-import com.example.myapplication.classic.ClassicState
-import com.example.myapplication.classic.FileTransferState
-import com.example.myapplication.classic.TransferDirection
+import com.example.myapplication.classic.file_transfer.FileTransferState
+import com.example.myapplication.classic.file_transfer.TransferDirection
+import com.example.myapplication.classic.helpers.ConnectionSecurity
+import com.example.myapplication.classic.messages.ClassicMessage
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
-import android.view.View
+import com.example.myapplication.models.ClassicState
 import com.example.myapplication.models.FilterType
+import com.example.myapplication.ui.controllers.BleUiController
+import com.example.myapplication.ui.controllers.ClassicUiController
+import com.example.myapplication.ui.sheets.DeviceFilterSheet
+import com.example.myapplication.util.GlobalUiStateManager
+import com.example.myapplication.util.SystemTimeline
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import android.view.Gravity
-import android.widget.FrameLayout
-import com.example.myapplication.classic.ConnectionSecurity
-import com.google.android.material.button.MaterialButton
+import me.weishu.reflection.Reflection
 
 
 class MainActivity : AppCompatActivity() {
@@ -87,6 +91,7 @@ class MainActivity : AppCompatActivity() {
 
     private var bleCollectorJob: Job? = null
 
+    private var bleBatteryLevel: Int? = null
     // ─── Bottom Sheet for Live Data ───────────────────────────────────────────
     private var bottomSheetDialog: BottomSheetDialog? = null
     private var bottomSheetList: LinearLayout? = null
@@ -224,7 +229,7 @@ class MainActivity : AppCompatActivity() {
                     launch {
                         service.connectionInfo.collect { info ->
                             bleUiController.updateStatusUi(info.state, info.address, bluetoothService?.getConnectionSecurity()
-                                ?: ConnectionSecurity.UNKNOWN)
+                                ?: ConnectionSecurity.UNKNOWN, bleBatteryLevel)
                             when (info.state) {
                                 BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${service.connectedDeviceName ?: info.address}")
                                 BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${service.connectedDeviceName ?: info.address}")
@@ -263,7 +268,14 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         manager.connectionInfo.collect { info ->
-                            classicUiController.updateClassicStatusUi(info.state, info.address, manager.getConnectionSecurity())
+                            // EXISTING call — add the two highlighted params
+                            classicUiController.updateClassicStatusUi(
+                                state        = info.state,
+                                address      = info.address,
+                                security     = manager.getConnectionSecurity(),
+                                batteryLevel = info.batteryLevel,   // ← add
+                                batteryError = info.batteryError    // ← add
+                            )
                             when (val s = info.state) {
                                 ClassicState.CONNECTING   -> SystemTimeline.log("🔄 Classic connecting to ${info.deviceName.ifBlank { info.address }}")
                                 ClassicState.CONNECTED    -> SystemTimeline.log("🟢 Classic connected: ${info.deviceName}")
@@ -274,6 +286,8 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }
+
+
                     launch {
                         manager.messages.collect { message ->
                             val display = when (message) {
@@ -286,6 +300,13 @@ class MainActivity : AppCompatActivity() {
                     }
                     launch {
                         manager.events.collect { event -> bleUiController.showDataBottomSheet("[Log] $event") }
+                    }
+                    lifecycleScope.launch {
+                        repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            bluetoothService?.batteryLevel?.collect { level ->
+                                bleBatteryLevel = level
+                            }
+                        }
                     }
                     launch {
                         service.fileTransferManager.state.collect { state ->
@@ -535,13 +556,25 @@ class MainActivity : AppCompatActivity() {
                 onFilterSelected = { type ->
                     activeBleFilter = type
                     when (type) {
-                        FilterType.SAVED -> ui.deviceAdapter.applyFilterType(type, saved = getSavedBleDevices())
-                        FilterType.NONE  -> ui.deviceAdapter.applyFilterType(type)
-                        else             -> ui.deviceAdapter.applyFilterType(type, bonded = getBondedBleAddresses())
+                        FilterType.SAVED -> ui.deviceAdapter.applyFilterType(
+                            type,
+                            saved = getSavedBleDevices()
+                        )
+
+                        FilterType.NONE -> ui.deviceAdapter.applyFilterType(type)
+                        else -> ui.deviceAdapter.applyFilterType(
+                            type,
+                            bonded = getBondedBleAddresses()
+                        )
                     }
                     if (ui.deviceAdapter.count == 0 && type != FilterType.NONE)
-                        Toast.makeText(this, "No Devices Found after Filtration.", Toast.LENGTH_SHORT).show()
-                    ui.bleClearFilterBtn.visibility = if (type != FilterType.NONE) View.VISIBLE else View.GONE
+                        Toast.makeText(
+                            this,
+                            "No Devices Found after Filtration.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    ui.bleClearFilterBtn.visibility =
+                        if (type != FilterType.NONE) View.VISIBLE else View.GONE
                 }
             ).show()
         }
@@ -557,8 +590,13 @@ class MainActivity : AppCompatActivity() {
                     activeClassicFilter = type
                     ui.classicAdapter.applyFilterType(type, bonded = getBondedClassicAddresses())
                     if (ui.classicAdapter.count == 0 && type != FilterType.NONE)
-                        Toast.makeText(this, "No Devices Found after Filtration.", Toast.LENGTH_SHORT).show()
-                    ui.classicClearFilterBtn.visibility = if (type != FilterType.NONE) View.VISIBLE else View.GONE
+                        Toast.makeText(
+                            this,
+                            "No Devices Found after Filtration.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    ui.classicClearFilterBtn.visibility =
+                        if (type != FilterType.NONE) View.VISIBLE else View.GONE
                 }
             ).show()
         }

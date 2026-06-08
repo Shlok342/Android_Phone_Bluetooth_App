@@ -1,4 +1,4 @@
-package com.example.myapplication.ble
+package com.example.myapplication.ble.scanners
 import android.bluetooth.BluetoothDevice
 import android.util.Log
 import android.bluetooth.le.ScanCallback

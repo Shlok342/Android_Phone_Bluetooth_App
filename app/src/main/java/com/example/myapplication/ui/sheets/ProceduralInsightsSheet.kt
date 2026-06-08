@@ -1,4 +1,4 @@
-package com.example.myapplication.ui
+package com.example.myapplication.ui.sheets
 
 import android.content.Context
 import android.os.Bundle
@@ -13,6 +13,7 @@ import com.example.myapplication.R
 import com.example.myapplication.insights.DeviceEvent
 import com.example.myapplication.insights.DeviceInsightAdapter
 import com.example.myapplication.insights.DeviceInsightManager
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -35,10 +36,10 @@ class ProceduralInsightsSheet(context: Context) : BottomSheetDialog(context) {
 
             bottomSheet?.let {
                 val behavior =
-                    com.google.android.material.bottomsheet.BottomSheetBehavior.from(it)
+                    BottomSheetBehavior.from(it)
 
                 behavior.state =
-                    com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+                    BottomSheetBehavior.STATE_EXPANDED
 
                 behavior.skipCollapsed = true
             }

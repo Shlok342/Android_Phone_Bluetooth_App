@@ -1,4 +1,4 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.file_transfer
 
 import android.content.ContentValues
 import android.content.Context
@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import com.example.myapplication.classic.ClassicConnectionManager
+import com.example.myapplication.classic.messages.ParseFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -229,7 +231,7 @@ class ClassicFileTransferManager(
 
     // ── Internal plumbing ──────────────────────────────────────────────────────
     private val ring      = RingBuffer(RING_CAP)
-    private val dataReady = Channel<Unit>(Channel.CONFLATED) // signals parser
+    private val dataReady = Channel<Unit>(Channel.Factory.CONFLATED) // signals parser
 
     // Typed dispatch channels (parser → transfer coroutines)
     private val ackCh     = Channel<Pkt>(64)
@@ -373,7 +375,7 @@ class ClassicFileTransferManager(
     private suspend fun doSend(uri: Uri) {
         val filename = resolveFilename(uri) ?: "file_${System.currentTimeMillis()}"
         val fileSize = resolveFileSize(uri)
-        val session  = Random.nextInt(1, 32767).toShort()
+        val session  = Random.Default.nextInt(1, 32767).toShort()
         activeSession = session
         var nextSeq   = 0
 

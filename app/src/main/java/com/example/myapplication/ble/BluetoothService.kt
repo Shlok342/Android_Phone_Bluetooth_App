@@ -11,7 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import com.example.myapplication.classic.ConnectionSecurity
+import com.example.myapplication.classic.helpers.ConnectionSecurity
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.models.BleConnectionInfo
 import java.util.UUID
@@ -215,15 +215,27 @@ class BluetoothService : Service() {
             DeviceInsightManager.onAppEvent("BLE GATT: Connection state changed. Status: $status, NewState: $newState")
 
             if (status != BluetoothGatt.GATT_SUCCESS) {
+                val gattStatusLabel = when (status) {
+                    133  -> "GATT_ERROR (transient transport/cache mismatch)"
+                    5    -> "GATT_INSUFFICIENT_AUTHENTICATION"
+                    8    -> "GATT_CONN_TIMEOUT"
+                    19   -> "GATT_CONN_TERMINATE_PEER_USER (remote closed)"
+                    22   -> "GATT_CONN_TERMINATE_LOCAL_HOST"
+                    257  -> "GATT_CONN_FAIL_ESTABLISH"
+                    else -> "GATT_STATUS_$status (undocumented)"
+                }
                 DeviceInsightManager.onAppEvent(
-                    "BLE RAW STATUS: $status"
+                    "BLE GATT error on $address → status=$status | $gattStatusLabel | appState=$currentState"
                 )
                 try { gatt.close() } catch (_: SecurityException) {}
                 bluetoothGatt = null
                 if (status == 133 && gatt133Attempts < MAX133RETRIES && !isDisconnecting) {
                     gatt133Attempts++
                     val delay = when (gatt133Attempts) { 1 -> 600L; 2 -> 1000L; else -> 1500L }
-                    bleNotificationManager.updateNotification("GATT error 133, retrying ($gatt133Attempts/$MAX133RETRIES)...")
+                    bleNotificationManager.updateNotification("GATT 133 – retry $gatt133Attempts/$MAX133RETRIES in ${delay}ms…")
+                    DeviceInsightManager.onAppEvent(
+                        "BLE 133 retry $gatt133Attempts/$MAX133RETRIES → reconnecting to $address in ${delay}ms"
+                    )
                     currentState = BleState.CONNECTING
                     val device = lastConnectedDevice ?: run { currentState = BleState.FAILED; return }
                     connectionSecurity =
@@ -261,8 +273,9 @@ class BluetoothService : Service() {
                     else ->
                         "Connection failed."
                 }
+                val retriesNote = if (status == 133) " | all $MAX133RETRIES retries exhausted" else ""
                 DeviceInsightManager.onAppEvent(
-                    "BLE Failure: $failureMessage (status=$status)"
+                    "BLE terminal failure on $address → $failureMessage (status=$status$retriesNote)"
                 )
 
                 bleNotificationManager.updateNotification(

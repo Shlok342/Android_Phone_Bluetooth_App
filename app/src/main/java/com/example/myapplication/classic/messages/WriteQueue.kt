@@ -1,4 +1,4 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.messages
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope

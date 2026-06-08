@@ -1,10 +1,11 @@
-package com.example.myapplication.ui
+package com.example.myapplication.util
 
 import com.example.myapplication.ble.BleState
-import com.example.myapplication.classic.ClassicState
+import com.example.myapplication.models.ClassicState
+import com.example.myapplication.ui.GlassmorphicBackgroundView
 
 /**
- * Mediates between BLE and Classic Bluetooth states to resolve a single, 
+ * Mediates between BLE and Classic Bluetooth states to resolve a single,
  * consistent UI theme for the background view.
  */
 class GlobalUiStateManager(private val backgroundView: GlassmorphicBackgroundView) {
@@ -24,7 +25,7 @@ class GlobalUiStateManager(private val backgroundView: GlassmorphicBackgroundVie
 
     private fun resolveCompositeState() {
         // Priority: FAILED > CONNECTING/BONDING > READY > IDLE
-        
+
         val bleSeverity = getBleSeverity(lastBleState)
         val classicSeverity = getClassicSeverity(lastClassicState)
 
@@ -48,11 +49,11 @@ class GlobalUiStateManager(private val backgroundView: GlassmorphicBackgroundVie
 
     private fun getBleSeverity(state: BleState): Int = when (state) {
         BleState.FAILED               -> 4
-        BleState.CONNECTING, 
-        BleState.BONDING, 
+        BleState.CONNECTING,
+        BleState.BONDING,
         BleState.DISCOVERING_SERVICES -> 3
         BleState.READY                -> 2
-        BleState.IDLE, 
+        BleState.IDLE,
         BleState.DISCONNECTED         -> 1
     }
 

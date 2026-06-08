@@ -1,6 +1,9 @@
-package com.example.myapplication.classic
+package com.example.myapplication.classic.messages
 
 import android.bluetooth.BluetoothDevice
+import com.example.myapplication.classic.ClassicConnectionManager
+import com.example.myapplication.models.ClassicState
+import com.example.myapplication.models.FailureReason
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -50,7 +53,7 @@ class ReconnectScheduler(
 
         // Cooldown after repeated failure bursts
         if (
-            consecutiveFailures.get() >= ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS &&
+            consecutiveFailures.get() >= ClassicConnectionManager.Companion.RECONNECT_MAX_ATTEMPTS &&
             System.currentTimeMillis() - lastFailureTime <  FAILURE_COOLDOWN_MS
         ) {
 

@@ -8,6 +8,18 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
+import com.example.myapplication.classic.helpers.BatteryErrorProfile
+import com.example.myapplication.classic.helpers.BluetoothBatteryMonitor
+import com.example.myapplication.models.ClassicState
+import com.example.myapplication.classic.helpers.ConnectionSecurity
+import com.example.myapplication.models.FailureReason
+import com.example.myapplication.classic.messages.ClassicMessage
+import com.example.myapplication.classic.messages.MessageParser
+import com.example.myapplication.classic.messages.NewlineMessageParser
+import com.example.myapplication.classic.messages.ReconnectScheduler
+import com.example.myapplication.classic.messages.SocketFactory
+import com.example.myapplication.classic.messages.SocketResult
+import com.example.myapplication.classic.messages.WriteQueue
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -56,7 +68,7 @@ class ClassicConnectionManager(private val appContext: Context) {
     private val batteryMonitor = BluetoothBatteryMonitor(appContext)
 
     // Expose the raw battery stream externally if needed
-    val batteryLevel: StateFlow<Int> = batteryMonitor.batteryLevel
+
 
     private val _state =
         MutableStateFlow<ClassicState>(
@@ -229,20 +241,34 @@ class ClassicConnectionManager(private val appContext: Context) {
                     e.printStackTrace()
                 }
 
-                val socketResult =
-                    SocketFactory.createSocket(device)
+                val hasPermission = ContextCompat.checkSelfPermission(
+                    appContext,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
 
-                bluetoothSocket =
-                    socketResult.socket
+                val socketResult = if (hasPermission) {
+                    SocketFactory.createSocket(device, appContext)
+                } else {
+                    SocketResult(
+                        socket = null,
+                        security = ConnectionSecurity.UNKNOWN,
+                        userErrorMessage = "Connection failed because the app lacks Bluetooth permissions. Please allow Bluetooth access in your system settings.",
+                        technicalLog = "SecurityException blocked: Manifest.permission.BLUETOOTH_CONNECT is missing."
+                    )
+                }
 
-                connectionSecurity =
-                    socketResult.security
+// 2. Assign the nullable fields safely
+                bluetoothSocket = socketResult.socket
+                connectionSecurity = socketResult.security ?: ConnectionSecurity.UNKNOWN
 
-                inputStream =
-                    socketResult.socket.inputStream
 
-                outputStream =
-                    socketResult.socket.outputStream
+// 3. Extract streams only if the socket instance is successfully created
+                inputStream = socketResult.socket?.inputStream
+                outputStream = socketResult.socket?.outputStream
+
+// 4. Handle the error state if the socket connection failed completely
+
+
                 onConnected()
             } catch(e:Exception){
 
@@ -351,7 +377,7 @@ class ClassicConnectionManager(private val appContext: Context) {
 
             // Also fire off a quick lifecycle collection to sync the internal flow with connection info
             managerScope.launch {
-                batteryMonitor.batteryLevel.collect { currentLevel ->
+                batteryMonitor.batteryLevel.collect {
                     // Forces the UI state model to update whenever a new percentage lands
                     updateState(_state.value)
                 }
@@ -510,11 +536,12 @@ class ClassicConnectionManager(private val appContext: Context) {
 
             true
 
-        } catch (e: Exception) {
-            false
-        }
+        } catch (_: SecurityException) {
+            logEvent("SecurityException checking bond state before connect")
+        } as Boolean
     }
     // ─── Permission / Device Helpers ───────────────────────
+
     private fun hasConnectPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         return ContextCompat.checkSelfPermission(
@@ -538,4 +565,6 @@ class ClassicConnectionManager(private val appContext: Context) {
             updateState(ClassicState.IDLE)
         }
     }
+
+
 }
