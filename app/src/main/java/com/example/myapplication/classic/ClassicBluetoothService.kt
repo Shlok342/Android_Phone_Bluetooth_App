@@ -284,8 +284,15 @@ class ClassicBluetoothService : Service() {
                             FailureReason.PairingRejected ->
                                 "Pairing request rejected"
 
+                            // new
                             FailureReason.BondingFailed ->
                                 "Pairing failed"
+
+                            FailureReason.PairingCancelledByUser ->
+                                "Pairing cancelled by user"
+
+                            FailureReason.PairingRejectedLocally ->
+                                "Pairing rejected locally"
 
                             FailureReason.DeviceRefusedConnection ->
                                 "Device refused connection"
@@ -364,8 +371,15 @@ class ClassicBluetoothService : Service() {
                                 FailureReason.PairingRejected ->
                                     "Pairing rejected"
 
+                                // new
                                 FailureReason.BondingFailed ->
                                     "Pairing failed"
+
+                                FailureReason.PairingCancelledByUser ->
+                                    "Pairing cancelled by user"
+
+                                FailureReason.PairingRejectedLocally ->
+                                    "Pairing rejected locally"
 
                                 FailureReason.DeviceRefusedConnection ->
                                     "Device refused connection"

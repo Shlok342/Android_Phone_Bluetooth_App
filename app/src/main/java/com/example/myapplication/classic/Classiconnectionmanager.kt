@@ -267,11 +267,17 @@ class ClassicConnectionManager(private val appContext: Context) {
                 outputStream = socketResult.socket?.outputStream
 
 // 4. Handle the error state if the socket connection failed completely
+                if (socketResult.socket == null) {
+                    cancelConnectionTimeout()
+                    updateState(ClassicState.FAILED(FailureReason.Unknown(socketResult.userErrorMessage ?: "Connection failed")))
+                    if (isActive) reconnectScheduler.handleConnectionFailure(device)
+                    return@launch
+                }
 
 
                 onConnected()
             } catch(e:Exception){
-
+                if (isIntentionalDisconnect) return@launch
                 val currentBondState =
                     try {
                         if (hasConnectPermission()) {
@@ -284,9 +290,11 @@ class ClassicConnectionManager(private val appContext: Context) {
                     }
                 val errorMessage =
              e.message?.lowercase() ?: ""
+                // AFTER
                 if (
                     initialBondState != BluetoothDevice.BOND_BONDED &&
-                    currentBondState == BluetoothDevice.BOND_NONE
+                    (currentBondState == BluetoothDevice.BOND_NONE ||
+                            currentBondState == BluetoothDevice.BOND_BONDING)
                 ) {
 
                     cancelConnectionTimeout()
@@ -337,8 +345,18 @@ class ClassicConnectionManager(private val appContext: Context) {
                     )
                 )
 
+                // AFTER
                 if (isActive) {
-                    reconnectScheduler.handleConnectionFailure(device)
+                    val isTerminal = failureReason == FailureReason.PairingRejected ||
+                            failureReason == FailureReason.AuthenticationFailed ||
+                            failureReason == FailureReason.BondingFailed ||
+                            failureReason == FailureReason.DeviceRefusedConnection
+                    if (isTerminal) {
+                        reconnectScheduler.cancelReconnect()
+                        reconnectScheduler.reset()
+                    } else {
+                        reconnectScheduler.handleConnectionFailure(device)
+                    }
                 }
                 logEvent(
                     when (failureReason) {
@@ -487,6 +505,18 @@ class ClassicConnectionManager(private val appContext: Context) {
         reconnectScheduler.cancelReconnect()
         cancelDiscovery(appContext)
         forceDisconnect()
+    }
+
+    // new
+    fun notifyPairingUserCancellation(unbondReason: Int) {
+        isIntentionalDisconnect = true
+        reconnectScheduler.cancelReconnect()
+        cancelConnectionTimeout()
+        connectJob?.cancel()
+        val reason = if (unbondReason == 3) FailureReason.PairingCancelledByUser
+        else FailureReason.PairingRejectedLocally
+        updateState(ClassicState.FAILED(reason))
+        logEvent(if (unbondReason == 3) "Pairing cancelled by user" else "Pairing rejected locally")
     }
 
     fun destroy() {

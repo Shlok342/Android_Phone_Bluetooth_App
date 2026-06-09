@@ -1,6 +1,7 @@
 package com.example.myapplication.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -17,15 +18,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
+
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -42,22 +41,25 @@ import com.example.myapplication.classic.file_transfer.TransferDirection
 import com.example.myapplication.classic.helpers.ConnectionSecurity
 import com.example.myapplication.classic.messages.ClassicMessage
 import com.example.myapplication.insights.DeviceInsightManager
+import com.example.myapplication.main_activity_helpers.BluetoothBlockerOverlay
+import com.example.myapplication.main_activity_helpers.BluetoothManagerWrapper
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
 import com.example.myapplication.models.ClassicState
 import com.example.myapplication.models.FilterType
+import com.example.myapplication.main_activity_helpers.BluetoothPermissionHandler
 import com.example.myapplication.ui.controllers.BleUiController
 import com.example.myapplication.ui.controllers.ClassicUiController
 import com.example.myapplication.ui.sheets.DeviceFilterSheet
 import com.example.myapplication.util.GlobalUiStateManager
 import com.example.myapplication.util.SystemTimeline
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.weishu.reflection.Reflection
+import com.example.myapplication.main_activity_helpers.hasConnectPermission
+import com.example.myapplication.main_activity_helpers.hasScanPermission
 
 
 class MainActivity : AppCompatActivity() {
@@ -65,9 +67,22 @@ class MainActivity : AppCompatActivity() {
         super.attachBaseContext(base)
         Reflection.unseal(base) // Bypasses hidden API blocks for the runtime session
     }
+    private lateinit var btManager: BluetoothManagerWrapper
+    private val permissionHandler = BluetoothPermissionHandler(
+        activity = this,
+        onPermissionsGranted = {
+            // Runs only if permissions are valid AND Bluetooth hardware is ON
+            startBluetoothService()
+            startClassicBluetoothService()
+        },
+        onShowBlocker = {
+            // Runs if permissions are valid BUT Bluetooth hardware is OFF
+            showBluetoothBlocker()
+        }
+    )
     // ─── UI State ─────────────────────────────────────────────────────────────
     private lateinit var ui: UiComponents
-
+    private var btBlocker: BluetoothBlockerOverlay? = null
     private val uiHandler = Handler(Looper.getMainLooper())
 
     private var pendingRefresh = false
@@ -86,7 +101,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var classicUiController: ClassicUiController
     private var activeTab = ActiveTab.BLE
     private var activeBleFilter     = FilterType.NONE
-    private var btBlocker: FrameLayout? = null
+
     private var activeClassicFilter = FilterType.NONE
 
     private var bleCollectorJob: Job? = null
@@ -105,6 +120,28 @@ class MainActivity : AppCompatActivity() {
             // User tapped "Deny" or closed the dialog
             Toast.makeText(this, "Bluetooth activation was declined", Toast.LENGTH_SHORT).show()
         }
+    }
+    private fun showBluetoothBlocker() {
+        // If already created, make it visible and prompt user
+        if (btBlocker != null) {
+            btBlocker?.visibility = View.VISIBLE
+            requestBluetoothEnable()
+            return
+        }
+
+        // Instantiating the custom view using the single-argument constructor
+        btBlocker = BluetoothBlockerOverlay(this).apply {
+            // Set the callback code to execute when the button is clicked
+            onEnableBtClick = {
+                requestBluetoothEnable()
+            }
+        }
+
+        // Add the view to your root layout hierarchy
+        ui.rootFrame.addView(btBlocker)
+
+        // Show system dialog immediately on first show
+        requestBluetoothEnable()
     }
     private fun promptToTurnOnBluetooth() {
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
@@ -158,7 +195,7 @@ class MainActivity : AppCompatActivity() {
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
 
-    private var enableBtButton: MaterialButton? = null
+
 
 
 
@@ -205,13 +242,18 @@ class MainActivity : AppCompatActivity() {
             }
         },
         onDeviceListChanged = { runOnUiThread { ui.classicAdapter.notifyDataSetChanged() } },
+        // new
         onStatusUpdate = { msg ->
             runOnUiThread {
                 ui.classicStatusText.text = msg
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
+        },
+        onPairingCancelled = { reason ->
+            classicService?.connectionManager?.notifyPairingUserCancellation(reason)
         }
     )
+
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -352,7 +394,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             classicUiController.updateClassicStatusUi(manager.state.value, manager.connectedDeviceAddress ?: "", manager.getConnectionSecurity())
-            if (activeTab == ActiveTab.CLASSIC) startClassicScan()
+            if (activeTab == ActiveTab.CLASSIC) triggerClassicScan()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -366,6 +408,12 @@ class MainActivity : AppCompatActivity() {
     // ─── Lifecycle ───────────────────────────────────────────────────────────
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        btManager = BluetoothManagerWrapper(
+            context = this,
+            scope = lifecycleScope,
+            checkConnectPermission = { hasConnectPermission() }, // Calls your existing Activity method
+            checkScanPermission = { hasScanPermission() }       // Calls your existing Activity method
+        )
 
         ui = MainUiFactory.build(
             activity = this,
@@ -389,7 +437,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     SystemTimeline.log("🔄 Classic refresh triggered")
                     stopClassicScan()
-                    this.startClassicScan()
+                    this.triggerClassicScan()
                 }
             },
             onStopScan = {
@@ -413,7 +461,7 @@ class MainActivity : AppCompatActivity() {
                 DeviceInsightManager.onAppEvent("UI: Switched to Classic tab")
                 activeTab = ActiveTab.CLASSIC
                 SystemTimeline.log("📑 Switched to Classic tab")
-                this.startClassicScan()
+                this.triggerClassicScan()
             },
             onFeatures = {
                 DeviceInsightManager.onAppEvent("UI: Launching Features Sheet from $activeTab tab")
@@ -444,7 +492,7 @@ class MainActivity : AppCompatActivity() {
         )
 
 
-        checkPermissionsAndStartService()
+        permissionHandler.checkPermissionsAndStartService()
 
         // Force an adapter sync right after UI creation to ensure visibility
         uiHandler.post { ui.deviceAdapter.notifyDataSetChanged() }
@@ -604,133 +652,38 @@ class MainActivity : AppCompatActivity() {
             promptToTurnOnBluetooth()
         }
     }
-
-    private fun checkPermissionsAndStartService() {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                TODO("VERSION.SDK_INT < TIRAMISU")
-            }
-        } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-
-        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) {
-            if (isBluetoothEnabled()) {
-                startBluetoothService()
-                startClassicBluetoothService()
-            } else {
-                showBluetoothBlocker()
-            }
-        } else {
-            requestPermissionsLauncher.launch(missing.toTypedArray())
-        }
-    }
-
-    private fun startBluetoothService() {
-        if (serviceStarted) return
-        serviceStarted = true
-        val intent = Intent(this, BluetoothService::class.java).apply { `package` = packageName }
-        startForegroundService(intent)
-        bindService(intent, serviceConnection, BIND_AUTO_CREATE)
-    }
-
-    private fun startClassicBluetoothService() {
-        if (classicServiceStarted) return
-        if (!isBluetoothEnabled()) return
-        classicServiceStarted = true
-        val intent = Intent(this, ClassicBluetoothService::class.java).apply { `package` = packageName }
-        startForegroundService(intent)
-        bindService(intent, classicConnection, BIND_AUTO_CREATE)
-    }
-
-    private val requestPermissionsLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions[Manifest.permission.BLUETOOTH_SCAN] == true &&
-                    permissions[Manifest.permission.BLUETOOTH_CONNECT] == true
-        } else {
-            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        }
-
-        if (bluetoothGranted) {
-            if (isBluetoothEnabled()) {
-                startBluetoothService()
-                startClassicBluetoothService()
-            } else {
-                showBluetoothBlocker()
-            }
-        } else {
-            Toast.makeText(this, "Bluetooth permissions required to scan.", Toast.LENGTH_SHORT).show()
-        }
-        // Notification permission denial is silently ignored — non-critical
-    }
-
-    private fun startClassicScan() {
-        val adapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (!adapter.isEnabled) {
-            Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        synchronized(classicDeviceList) {
-            classicDeviceList.clear()
-            classicDeviceMap.clear()
-        }
-        ui.classicAdapter.notifyDataSetChanged()
-
-        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                adapter.bondedDevices?.forEach { device ->
-                    val type = device.type
-                    if (type != BluetoothDevice.DEVICE_TYPE_CLASSIC && type != BluetoothDevice.DEVICE_TYPE_DUAL) return@forEach
-                    
-                    synchronized(classicDeviceList) {
-                        classicDeviceMap[device.address] = device
-                        classicDeviceList.add(
-                            ClassicDeviceItem(
-                                device.name ?: "Unknown",
-                                device.address,
-                                type
-                            )
-                        )
-                    }
+    // FROM: startClassicScan() (UI Side elements)
+    @SuppressLint("MissingPermission")
+    private fun triggerClassicScan() {
+        btManager.startClassicScan(
+            onPreScan = {
+                synchronized(classicDeviceList) {
+                    classicDeviceList.clear()
+                    classicDeviceMap.clear()
                 }
                 ui.classicAdapter.notifyDataSetChanged()
-            }
-        } catch (_: SecurityException) {}
-
-        lifecycleScope.launch {
-
-            if (
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                ContextCompat.checkSelfPermission(
-                    this@MainActivity,
-                    Manifest.permission.BLUETOOTH_SCAN
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-
-                if (adapter.isDiscovering) {
-                    adapter.cancelDiscovery()
-                    delay(500)
+            },
+            onDeviceFound = { device ->
+                synchronized(classicDeviceList) {
+                    classicDeviceMap[device.address] = device
+                    classicDeviceList.add(
+                        ClassicDeviceItem(device.name ?: "Unknown", device.address, device.type)
+                    )
                 }
-
-                try {
-                    adapter.startDiscovery()
-                    SystemTimeline.log("📡 Classic discovery started")
-
-                } catch (_: SecurityException) {}
+                ui.classicAdapter.notifyDataSetChanged()
+            },
+            onScanStarted = {
+                SystemTimeline.log("📡 Classic discovery started")
             }
-        }
+        )
     }
 
+    // FROM: stopClassicScan()
     private fun stopClassicScan() {
-        try { (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter.cancelDiscovery() } catch (_: SecurityException) {}
+        btManager.stopClassicScan()
     }
 
+    // FROM: connectToDevice()
     private fun connectToDevice(device: BluetoothDevice) {
         if (!isBound) return
         bleScanManager.stop()
@@ -741,67 +694,57 @@ class MainActivity : AppCompatActivity() {
             ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
         }
         bluetoothService?.connect(device)
-
     }
 
-    // ─── UI Helpers ──────────────────────────────────────────────────────────
-    private fun getSavedBleDevices(): List<BleDeviceItem> = try {
-        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) emptyList()
-        else bt.bondedDevices
-            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
-            ?.onEach { bleDeviceMap[it.address] = it }
-            ?.map { BleDeviceItem(try { it.name ?: "Unknown" } catch (_: SecurityException) { "Unknown" }, it.address, 0) }
-            ?: emptyList()
-    } catch (_: Exception) { emptyList() }
+    // FROM: getSavedBleDevices()
+    private fun getSavedBleDevices(): List<BleDeviceItem> {
+        return btManager.getSavedBleDevices(
+            onDeviceMapped = { bleDeviceMap[it.address] = it }
+        )
+    }
 
-    private fun getBondedBleAddresses(): Set<String> = try {
-        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) emptySet()
-        else bt.bondedDevices
-            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
-            ?.map { it.address }?.toSet() ?: emptySet()
-    } catch (_: Exception) { emptySet() }
+    // FROM: getBondedBleAddresses()
+    private fun getBondedBleAddresses(): Set<String> {
+        return btManager.getBondedAddresses { type ->
+            type == BluetoothDevice.DEVICE_TYPE_LE || type == BluetoothDevice.DEVICE_TYPE_DUAL
+        }
+    }
 
-    private fun getBondedClassicAddresses(): Set<String> = try {
-        val bt = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) emptySet()
-        else bt.bondedDevices
-            ?.filter { it.type == BluetoothDevice.DEVICE_TYPE_CLASSIC || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
-            ?.map { it.address }?.toSet() ?: emptySet()
-    } catch (_: Exception) { emptySet() }
-    private fun isBluetoothEnabled(): Boolean =
-        (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == true
+    // FROM: getBondedClassicAddresses()
+    private fun getBondedClassicAddresses(): Set<String> {
+        return btManager.getBondedAddresses { type ->
+            type == BluetoothDevice.DEVICE_TYPE_CLASSIC || type == BluetoothDevice.DEVICE_TYPE_DUAL
+        }
+    }
+    private fun startBluetoothService() {
+        if (serviceStarted) return
+        serviceStarted = true
+        val intent = Intent(this, BluetoothService::class.java).apply { `package` = packageName }
+
+        // Uses wrapper helper to launch the foreground service safely
+        btManager.startService(intent)
+
+        bindService(intent, serviceConnection, BIND_AUTO_CREATE)
+    }
+
+    private fun startClassicBluetoothService() {
+        if (classicServiceStarted) return
+        // Offloads the hardware status check to the wrapper class
+        if (!btManager.isBluetoothEnabled()) return
+        classicServiceStarted = true
+        val intent = Intent(this, ClassicBluetoothService::class.java).apply { `package` = packageName }
+
+        // Uses wrapper helper to launch the foreground service safely
+        btManager.startService(intent)
+
+        bindService(intent, classicConnection, BIND_AUTO_CREATE)
+    }
+
+
+
 
     private fun requestBluetoothEnable() {
         enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-    }
-
-    private fun showBluetoothBlocker() {
-        if (btBlocker != null) { btBlocker?.visibility = View.VISIBLE; requestBluetoothEnable(); return }
-        btBlocker = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(-1, -1)
-            setBackgroundColor(0xCC000000.toInt())
-            isClickable = true  // swallows touches — nothing behind is reachable
-            enableBtButton = MaterialButton(this@MainActivity).apply {
-                text = getString(R.string.enable_bluetooth)
-                textSize = 15f
-                setTextColor(getColor(R.color.color_text_primary))
-                setBackgroundResource(R.drawable.bg_button_glass)
-                stateListAnimator = null
-                layoutParams = FrameLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER }
-                setOnClickListener { requestBluetoothEnable() }
-            }
-            addView(enableBtButton)
-        }
-        ui.rootFrame.addView(btBlocker)
-        requestBluetoothEnable()  // show system dialog immediately on first show
     }
     override fun onDestroy() {
         super.onDestroy()

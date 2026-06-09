@@ -152,8 +152,15 @@ class ClassicUiController (
                     FailureReason.PairingRejected ->
                         "Pairing request was rejected."
 
+                    // new
                     FailureReason.BondingFailed ->
                         "Pairing failed. Verify the PIN and try again."
+
+                    FailureReason.PairingCancelledByUser ->
+                        "Pairing cancelled by user"
+
+                    FailureReason.PairingRejectedLocally ->
+                        "Pairing rejected locally"
 
                     FailureReason.DeviceRefusedConnection ->
                         "The device refused the connection."

@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import android.widget.Toast
 import androidx.annotation.RequiresPermission
 import com.example.myapplication.models.ClassicDeviceItem
 import com.example.myapplication.R
@@ -18,7 +17,9 @@ class ClassicScanReceiver(
     private val classicDeviceMap: MutableMap<String, BluetoothDevice>,
     private val permissionChecker: () -> Boolean,
     private val onDeviceListChanged: () -> Unit,
-    private val onStatusUpdate: (String) -> Unit) : BroadcastReceiver(){
+    private val onStatusUpdate: (String) -> Unit,
+    private val onPairingCancelled: ((Int) -> Unit)? = null
+) : BroadcastReceiver(){
     private fun isProbablyClassicCapable(device: BluetoothDevice): Boolean {
 
         return try {
@@ -192,8 +193,15 @@ class ClassicScanReceiver(
                                 }
                                 onStatusUpdate(context.getString(R.string.paired_connecting))
                             }
-                            BluetoothDevice.BOND_NONE ->
-                                onStatusUpdate(context.getString(R.string.pairing_failed))
+                            // new
+                            BluetoothDevice.BOND_NONE -> {
+                                val unbondReason = intent.getIntExtra("android.bluetooth.device.extra.REASON", -1)
+                                if (unbondReason == 2 || unbondReason == 3) {
+                                    onPairingCancelled?.invoke(unbondReason)
+                                } else {
+                                    onStatusUpdate(context.getString(R.string.pairing_failed))
+                                }
+                            }
                         }
 
                 }

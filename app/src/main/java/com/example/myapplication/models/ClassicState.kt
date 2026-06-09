@@ -35,7 +35,12 @@ sealed class FailureReason {
 
     object PairingRejected : FailureReason()
 
+    // new
     object BondingFailed : FailureReason()
+
+    object PairingCancelledByUser : FailureReason()
+
+    object PairingRejectedLocally : FailureReason()
 
     object DeviceRefusedConnection : FailureReason()
 

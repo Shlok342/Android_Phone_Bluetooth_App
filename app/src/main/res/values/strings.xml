@@ -20,7 +20,7 @@
     <string name="initiating_pairing">⏳ Initiating pairing</string>
     <string name="connected">🟢 Connected: %1$s </string>
     <string name="connecting">⏳ Connecting to %1$s</string>
-    <string name="paired_connecting">🔐 Paired! Connecting...</string>
+    <string name="paired_connecting">🔐 Paired!</string>
     <string name="pairing_for_CLASSIC_BLE">🔐 Pairing with %1$s device</string>
     <string name="pairing_new">🔄 Pairing...</string>
     <string name="pairing_failed">❌ Pairing failed</string>
