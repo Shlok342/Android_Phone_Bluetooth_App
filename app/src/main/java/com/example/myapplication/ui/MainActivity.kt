@@ -406,6 +406,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ─── Lifecycle ───────────────────────────────────────────────────────────
+    @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         btManager = BluetoothManagerWrapper(
@@ -471,7 +472,8 @@ class MainActivity : AppCompatActivity() {
                 DeviceInsightManager.onAppEvent("UI: Connecting to BLE device ${device.address}")
                 connectToDevice(device)
             },
-            connectClassicCallback = { device ->
+
+            connectClassicCallback =  { device ->
                 DeviceInsightManager.onAppEvent("UI: Connecting to Classic device ${device.address}")
                 classicService?.connectionManager?.connect(device)
             },

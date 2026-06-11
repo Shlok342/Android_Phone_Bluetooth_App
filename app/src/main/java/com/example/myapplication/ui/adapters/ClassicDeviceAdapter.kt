@@ -30,6 +30,9 @@ class ClassicDeviceAdapter(
     private val connectCallback: (BluetoothDevice) -> Unit,
     private val forgetCallback: (BluetoothDevice) -> Unit
 ) : BaseAdapter() {
+    private var lastConnectClickTime = 0L
+
+
     override fun getCount() = displayList().size
     override fun getItem(p: Int) = displayList()[p]
     override fun getItemId(p: Int) = p.toLong()
@@ -151,9 +154,16 @@ class ClassicDeviceAdapter(
                 .show()
         }
         view.findViewById<Button>(R.id.connectBtn).apply {
-
             isAllCaps = false
             setOnClickListener {
+                // Check if the click happened too fast after the last one (or a dialog dismissal)
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastConnectClickTime < 1500L) {
+                    // Ignore the ghost tap completely
+                    return@setOnClickListener
+                }
+                lastConnectClickTime = currentTime
+
                 deviceMap[item.address]?.let { connectCallback(it) }
                     ?: Toast.makeText(context, "Device not found, try rescanning", Toast.LENGTH_SHORT).show()
             }

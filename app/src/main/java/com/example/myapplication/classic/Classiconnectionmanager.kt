@@ -7,6 +7,8 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
+import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.example.myapplication.classic.helpers.BatteryErrorProfile
 import com.example.myapplication.classic.helpers.BluetoothBatteryMonitor
@@ -146,6 +148,33 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Reconnect State ───────────────────────────────────
     private var lastDevice:            BluetoothDevice? = null
+    private val bluetoothReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: android.content.Intent?) {
+            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED == intent?.action) {
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+                val prevBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR)
+
+                // User hit 'Cancel' or 'Reject' on the OS pairing window popup
+                if (bondState == BluetoothDevice.BOND_NONE && prevBondState == BluetoothDevice.BOND_BONDING) {
+                    Log.d("BLE_RECONNECT_BUG", "Pairing rejected by user system window. Killing threads.")
+                    disconnectInternal()
+                    updateState(ClassicState.DISCONNECTED)
+                }
+            }
+        }
+    }
+
+    fun registerPairingReceiver() {
+        val filter = android.content.IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        appContext.registerReceiver(bluetoothReceiver, filter)
+    }
+
+    fun unregisterPairingReceiver() {
+        try {
+            appContext.unregisterReceiver(bluetoothReceiver)
+        } catch (_: java.lang.IllegalArgumentException) {}
+    }
+
     @Volatile private var isIntentionalDisconnect = false
 
 
@@ -191,37 +220,48 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── Public: Manual Connect ────────────────────────────
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     @Synchronized
+
     fun connect(device: BluetoothDevice) {
+        Log.d("CLASSIC_RECONNECT_BUG", "connect() triggered for Device: ${device.address}, BondState: ${device.bondState}")
+
+        // Reset all disconnect states and schedulers clean before attempting a fresh run
         isIntentionalDisconnect = false
         reconnectScheduler.reset()
         reconnectScheduler.cancelReconnect()
+
+        // Clean execution: Let both paired (12) and unpaired (10) devices hit the socket engine!
         doConnect(device)
     }
 
+
+
+
     // ─── Internal Connect (also used by reconnect) ─────────
     private fun doConnect(device: BluetoothDevice) {
-        if (_state.value== ClassicState.CONNECTING ||
+        if (_state.value == ClassicState.CONNECTING ||
             _state.value == ClassicState.CONNECTED) return
 
+        // 1. Clean up old resources (this sets isIntentionalDisconnect = true internally)
         disconnectInternal()
+
+        // 🛡️ FIX A: RESET the flag here because this is a deliberate, manual connection attempt!
+        isIntentionalDisconnect = false
+
         lastDevice = device
         connectedDeviceAddress = resolveAddress(device)
         connectedDeviceName    = resolveDeviceName(device)
         updateState(ClassicState.CONNECTING)
         startConnectionTimeout()
 
-        connectJob = managerScope.launch  {
-            val initialBondState =
-                try {
-                    if (hasConnectPermission()) {
-                        device.bondState
-                    } else {
-                        BluetoothDevice.BOND_NONE
-                    }
-                } catch (_: SecurityException) {
-                    BluetoothDevice.BOND_NONE
-                }
+        connectJob = managerScope.launch {
+            val initialBondState = try {
+                if (hasConnectPermission()) device.bondState else BluetoothDevice.BOND_NONE
+            } catch (_: SecurityException) {
+                BluetoothDevice.BOND_NONE
+            }
+
             try {
                 if (!hasConnectPermission()) {
                     cancelConnectionTimeout()
@@ -236,8 +276,6 @@ class ClassicConnectionManager(private val appContext: Context) {
                         delay(1200)
                     }
                 } catch (e: SecurityException) {
-                    // Permission was denied or missing.
-                    // Log the error or gracefully degrade the feature.
                     e.printStackTrace()
                 }
 
@@ -252,136 +290,105 @@ class ClassicConnectionManager(private val appContext: Context) {
                     SocketResult(
                         socket = null,
                         security = ConnectionSecurity.UNKNOWN,
-                        userErrorMessage = "Connection failed because the app lacks Bluetooth permissions. Please allow Bluetooth access in your system settings.",
-                        technicalLog = "SecurityException blocked: Manifest.permission.BLUETOOTH_CONNECT is missing."
+                        userErrorMessage = "Connection failed because the app lacks Bluetooth permissions.",
+                        technicalLog = "SecurityException blocked: Manifest.permission.BLUETOOTH_CONNECT missing."
                     )
                 }
 
-// 2. Assign the nullable fields safely
                 bluetoothSocket = socketResult.socket
                 connectionSecurity = socketResult.security ?: ConnectionSecurity.UNKNOWN
-
-
-// 3. Extract streams only if the socket instance is successfully created
                 inputStream = socketResult.socket?.inputStream
                 outputStream = socketResult.socket?.outputStream
 
-// 4. Handle the error state if the socket connection failed completely
                 if (socketResult.socket == null) {
                     cancelConnectionTimeout()
-                    updateState(ClassicState.FAILED(FailureReason.Unknown(socketResult.userErrorMessage ?: "Connection failed")))
-                    if (isActive) reconnectScheduler.handleConnectionFailure(device)
+
+                    // FIX B: Only abort retry loops if the user actually clicked 'Cancel' on the system pop-up dialog
+                    val currentBond = try { if (hasConnectPermission()) device.bondState else BluetoothDevice.BOND_NONE } catch (_: SecurityException) { BluetoothDevice.BOND_NONE }
+                    val isUserRejection = isIntentionalDisconnect || currentBond == BluetoothDevice.BOND_NONE
+
+                    if (isUserRejection) {
+                        Log.d("BLE_RECONNECT_BUG", "Socket is null due to pairing rejection/cancellation. Blocking retry.")
+                        reconnectScheduler.cancelReconnect()
+                        reconnectScheduler.reset()
+                        updateState(ClassicState.FAILED(FailureReason.PairingRejected))
+                    } else {
+                        updateState(ClassicState.FAILED(FailureReason.Unknown(socketResult.userErrorMessage ?: "Connection failed")))
+                        if (isActive) reconnectScheduler.handleConnectionFailure(device)
+                    }
                     return@launch
                 }
-
 
                 onConnected()
-            } catch(e:Exception){
-                if (isIntentionalDisconnect) return@launch
-                val currentBondState =
-                    try {
-                        if (hasConnectPermission()) {
-                            device.bondState
-                        } else {
-                            BluetoothDevice.BOND_NONE
-                        }
-                    } catch (_: SecurityException) {
-                        BluetoothDevice.BOND_NONE
-                    }
-                val errorMessage =
-             e.message?.lowercase() ?: ""
-                // AFTER
-                if (
-                    initialBondState != BluetoothDevice.BOND_BONDED &&
-                    (currentBondState == BluetoothDevice.BOND_NONE ||
-                            currentBondState == BluetoothDevice.BOND_BONDING)
-                ) {
-
-                    cancelConnectionTimeout()
-
-                    updateState(
-                        ClassicState.FAILED(
-                            FailureReason.BondingFailed
-                        )
-                    )
-
-                    logEvent(
-                        "Pairing/Bonding failed before connection could be established."
-                    )
-
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (isIntentionalDisconnect) {
+                    reconnectScheduler.cancelReconnect()
                     return@launch
                 }
-            val failureReason =
-                when {
 
-                    "authentication" in errorMessage ->
-                        FailureReason.AuthenticationFailed
-
-                    "incorrect pin" in errorMessage ->
-                        FailureReason.AuthenticationFailed
-
-                    "pin" in errorMessage ->
-                        FailureReason.AuthenticationFailed
-
-                    "bond" in errorMessage ->
-                        FailureReason.BondingFailed
-
-                    "pair" in errorMessage ->
-                        FailureReason.PairingRejected
-
-                    "refused" in errorMessage ->
-                        FailureReason.DeviceRefusedConnection
-
-                    else ->
-                        FailureReason.Unknown(
-                            e.message ?: "Unknown connection error"
-                        )
+                val currentBondState = try {
+                    if (hasConnectPermission()) device.bondState else BluetoothDevice.BOND_NONE
+                } catch (_: SecurityException) {
+                    BluetoothDevice.BOND_NONE
                 }
+
+                val errorMessage = e.message?.lowercase() ?: ""
+
+                if (currentBondState == BluetoothDevice.BOND_BONDING ||
+                    (initialBondState != BluetoothDevice.BOND_BONDED && currentBondState == BluetoothDevice.BOND_NONE)
+                ) {
+                    cancelConnectionTimeout()
+                    reconnectScheduler.cancelReconnect()
+                    reconnectScheduler.reset()
+                    updateState(ClassicState.FAILED(FailureReason.BondingFailed))
+                    logEvent("Pairing/Bonding failed before connection could be established.")
+                    return@launch
+                }
+
+                val failureReason = when {
+                    "authentication" in errorMessage || "incorrect pin" in errorMessage || "pin" in errorMessage ->
+                        FailureReason.AuthenticationFailed
+                    "bond" in errorMessage -> FailureReason.BondingFailed
+                    "pair" in errorMessage || "cancel" in errorMessage -> FailureReason.PairingRejected
+                    "refused" in errorMessage -> FailureReason.DeviceRefusedConnection
+                    else -> FailureReason.Unknown(e.message ?: "Unknown connection error")
+                }
+
                 cancelConnectionTimeout()
+                updateState(ClassicState.FAILED(failureReason))
 
-                updateState(
-                    ClassicState.FAILED(
-                        failureReason
-                    )
-                )
-
-                // AFTER
                 if (isActive) {
                     val isTerminal = failureReason == FailureReason.PairingRejected ||
                             failureReason == FailureReason.AuthenticationFailed ||
                             failureReason == FailureReason.BondingFailed ||
-                            failureReason == FailureReason.DeviceRefusedConnection
+                            failureReason == FailureReason.DeviceRefusedConnection ||
+                            currentBondState == BluetoothDevice.BOND_NONE
+
                     if (isTerminal) {
+                        Log.d("BLE_RECONNECT_BUG", "Terminal failure hit ($failureReason). Killing schedulers permanently.")
                         reconnectScheduler.cancelReconnect()
                         reconnectScheduler.reset()
                     } else {
                         reconnectScheduler.handleConnectionFailure(device)
                     }
                 }
+
                 logEvent(
                     when (failureReason) {
-
-                        FailureReason.AuthenticationFailed ->
-                            "Authentication failed. Possible incorrect PIN/passkey."
-
-                        FailureReason.PairingRejected ->
-                            "Pairing request was rejected."
-
-                        FailureReason.BondingFailed ->
-                            "Bluetooth bonding failed."
-
-                        FailureReason.DeviceRefusedConnection ->
-                            "Remote device refused the connection."
-
-                        is FailureReason.Unknown ->
-                            "Connection failed: ${failureReason.message}"
-
-                        else ->
-                            "Connection failed."
+                        FailureReason.AuthenticationFailed -> "Authentication failed. Possible incorrect PIN/passkey."
+                        FailureReason.PairingRejected -> "Pairing request was rejected."
+                        FailureReason.BondingFailed -> "Bluetooth bonding failed."
+                        FailureReason.DeviceRefusedConnection -> "Remote device refused the connection."
+                        is FailureReason.Unknown -> "Connection failed: ${failureReason.message}"
+                        else -> "Connection failed."
                     }
                 )
-        }}
+            }
+        }
     }
+
+
 
 
 
@@ -510,7 +517,9 @@ class ClassicConnectionManager(private val appContext: Context) {
     // new
     fun notifyPairingUserCancellation(unbondReason: Int) {
         isIntentionalDisconnect = true
+        disconnectInternal()
         reconnectScheduler.cancelReconnect()
+        reconnectScheduler.reset()
         cancelConnectionTimeout()
         connectJob?.cancel()
         val reason = if (unbondReason == 3) FailureReason.PairingCancelledByUser
@@ -527,6 +536,10 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Internal Cleanup ──────────────────────────────────
     private fun disconnectInternal() {
+        // 🛡️ FIX 1: Explicitly flag this as an intentional disconnect to block auto-retries
+        isIntentionalDisconnect = true
+        reconnectScheduler.cancelReconnect()
+
         batteryMonitor.stopMonitoring()
         cancelConnectionTimeout()
         inactivityTimeoutJob?.cancel(); inactivityTimeoutJob = null
@@ -536,10 +549,8 @@ class ClassicConnectionManager(private val appContext: Context) {
         try { inputStream?.close()    } catch (_: IOException) {}
         try { outputStream?.close()   } catch (_: IOException) {}
 
-
         bluetoothSocket = null
-        connectionSecurity =
-            ConnectionSecurity.UNKNOWN
+        connectionSecurity = ConnectionSecurity.UNKNOWN
         inputStream     = null
         outputStream    = null
         connectedDeviceAddress = null
@@ -550,6 +561,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         parser.onMessageParsed = null
         parser.reset()
     }
+
     fun forgetDevice(device: BluetoothDevice): Boolean {
         return try {
 

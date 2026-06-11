@@ -206,6 +206,7 @@ class ClassicBluetoothService : Service() {
                 updateNotification("📥 Received: $filename")
             }
         }
+        connectionManager.registerPairingReceiver()
         createNotificationChannel()
         // Clean, safe, and handles Android 14+ automatically
         updateBluetoothForeground("Classic BT Ready")
@@ -219,7 +220,7 @@ class ClassicBluetoothService : Service() {
     }
 
     override fun onDestroy() {
-
+        connectionManager.unregisterPairingReceiver()
         serviceScope.cancel()
         _audioProfileManager?.destroy()
         _audioProfileManager = null
