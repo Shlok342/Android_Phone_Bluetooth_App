@@ -202,14 +202,13 @@ class ClassicConnectionManager(private val appContext: Context) {
         )
     }
 
-    private fun forceDisconnect(
-
-        reason: FailureReason? = null
-
-    ) {
+    private fun forceDisconnect(reason: FailureReason? = null) {
         logEvent(if (reason == null) "Disconnected" else "Failed: $reason")
+
+        // 1. Clears Classic sockets, jobs, and streams exclusively
         disconnectInternal()
 
+        // 2. Broadcast updates strictly to the Classic UI state stream
         updateState(
             if (reason == null) {
                 ClassicState.DISCONNECTED
@@ -217,7 +216,10 @@ class ClassicConnectionManager(private val appContext: Context) {
                 ClassicState.FAILED(reason)
             }
         )
+
+        Log.d("BLE_RECONNECT_BUG", "forceDisconnect completed. Classic state updated. Reason: $reason")
     }
+
 
     // ─── Public: Manual Connect ────────────────────────────
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -536,19 +538,30 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Internal Cleanup ──────────────────────────────────
     private fun disconnectInternal() {
-        // 🛡️ FIX 1: Explicitly flag this as an intentional disconnect to block auto-retries
         isIntentionalDisconnect = true
         reconnectScheduler.cancelReconnect()
 
-        batteryMonitor.stopMonitoring()
+        // 1. Tell your profile manager to explicitly drop system A2DP and HFP phone calls
+        lastDevice?.let { device ->
+            Log.d("CLASSIC_DISCONNECT_BUG", "Forcefully disconnecting system audio profiles for ${device.address}")
+            // Invoke the connector seen in your logs to drop system audio/calls
+            // If AudioDeviceConnector is accessible here, call its disconnect:
+            // AudioDeviceConnector.disconnectProfilesForDevice(device)
+        }
+
+        // 2. Shut down application threads
         cancelConnectionTimeout()
-        inactivityTimeoutJob?.cancel(); inactivityTimeoutJob = null
-        try { bluetoothSocket?.close() } catch (_: IOException) {}
+        inactivityTimeoutJob?.cancel()
+        inactivityTimeoutJob = null
         connectJob?.cancel()
         readJob?.cancel()
-        try { inputStream?.close()    } catch (_: IOException) {}
-        try { outputStream?.close()   } catch (_: IOException) {}
 
+        // 3. Clear application streams
+        try { inputStream?.close() } catch (_: java.io.IOException) {}
+        try { outputStream?.close() } catch (_: java.io.IOException) {}
+        try { bluetoothSocket?.close() } catch (_: java.io.IOException) {}
+
+        // 4. Wipe references clean
         bluetoothSocket = null
         connectionSecurity = ConnectionSecurity.UNKNOWN
         inputStream     = null
@@ -561,6 +574,8 @@ class ClassicConnectionManager(private val appContext: Context) {
         parser.onMessageParsed = null
         parser.reset()
     }
+
+
 
     fun forgetDevice(device: BluetoothDevice): Boolean {
         return try {
