@@ -21,7 +21,7 @@ class BleScanCallback(
     }
 
     override fun onScanResult(callbackType: Int, result: ScanResult) {
-        Log.d("BLE_SCAN", "RAW RESULT RECEIVED")
+
 
         val hasConnectPermission = permissionChecker()
 

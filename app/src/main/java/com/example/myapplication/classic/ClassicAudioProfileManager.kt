@@ -1,35 +1,40 @@
 package com.example.myapplication.classic
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.content.Context
-import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
-import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicInteger
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.bluetooth.BluetoothCodecConfig
-import android.annotation.SuppressLint
-    sealed class AudioProfileState {
-        object IDLE : AudioProfileState()
 
-        object CONNECTING : AudioProfileState()
+sealed class AudioProfileState {
+    object IDLE : AudioProfileState()
 
-        object CONNECTED : AudioProfileState()
+    object CONNECTING : AudioProfileState()
 
-        object PLAYING : AudioProfileState()
+    object CONNECTED : AudioProfileState()
 
-        object DISCONNECTED : AudioProfileState()
+    object PLAYING : AudioProfileState()
 
-        data class RECONNECTING(
-            val attempt: Int
-        ) : AudioProfileState()
+    object DISCONNECTED : AudioProfileState()
 
-        data class FAILED(
-            val reason: String
-        ) : AudioProfileState()
-    }
+    data class RECONNECTING(
+        val attempt: Int
+    ) : AudioProfileState()
+
+    data class FAILED(
+        val reason: String
+    ) : AudioProfileState()
+}
 
 data class AudioConnectionInfo(
     val state: AudioProfileState,
@@ -41,40 +46,158 @@ data class AudioConnectionInfo(
 class ClassicAudioProfileManager(
     private val context: Context
 ) {
-
     companion object {
         private const val MAX_RECONNECT_ATTEMPTS = 3
     }
 
-    private val managerScope =
-        CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    @Volatile private var isIntentionalDisconnect = false
-    private val _state =
-        MutableStateFlow<AudioProfileState>(AudioProfileState.IDLE)
+    private val tag = "ClassicAudioProfile"
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val handler = Handler(Looper.getMainLooper())
 
-    val state: StateFlow<AudioProfileState> =
-        _state.asStateFlow()
-
-    private val _connectionInfo =
-        MutableStateFlow(
-            AudioConnectionInfo(AudioProfileState.IDLE)
-        )
-
-    val connectionInfo: StateFlow<AudioConnectionInfo> =
-        _connectionInfo.asStateFlow()
-
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var bluetoothAdapter: BluetoothAdapter? =
-        (context.getSystemService(Context.BLUETOOTH_SERVICE)
-                as BluetoothManager).adapter
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
-    private var a2dp: BluetoothA2dp? = null
+    @Volatile private var isIntentionalDisconnect = false
+    @Volatile private var a2dpProxy: BluetoothA2dp? = null
+    @Volatile private var hfpProxy: BluetoothHeadset? = null
+
+    private val _state = MutableStateFlow<AudioProfileState>(AudioProfileState.IDLE)
+    val state: StateFlow<AudioProfileState> = _state.asStateFlow()
+
+    private val _connectionInfo = MutableStateFlow(AudioConnectionInfo(AudioProfileState.IDLE))
+    val connectionInfo: StateFlow<AudioConnectionInfo> = _connectionInfo.asStateFlow()
 
     private var connectedDevice: BluetoothDevice? = null
-
-    private val reconnectAttempts =
-        AtomicInteger(0)
-
+    private val reconnectAttempts = AtomicInteger(0)
     private var reconnectJob: Job? = null
+
+    // Dual-profile listener to bind both A2DP and HFP safely
+    private val profileListener = object : BluetoothProfile.ServiceListener {
+        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+            when (profile) {
+                BluetoothProfile.A2DP -> {
+                    a2dpProxy = proxy as BluetoothA2dp
+                    Log.d(tag, "A2DP proxy acquired")
+                    checkCurrentlyConnectedDevices()
+                }
+                BluetoothProfile.HEADSET -> {
+                    hfpProxy = proxy as BluetoothHeadset
+                    Log.d(tag, "HFP proxy acquired")
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(profile: Int) {
+            when (profile) {
+                BluetoothProfile.A2DP -> {
+                    a2dpProxy = null
+                    Log.d(tag, "A2DP proxy lost")
+                    updateState(AudioProfileState.DISCONNECTED)
+                    if (!isIntentionalDisconnect) {
+                        bluetoothAdapter?.getProfileProxy(context, this, BluetoothProfile.A2DP)
+                    }
+                }
+                BluetoothProfile.HEADSET -> {
+                    hfpProxy = null
+                    Log.d(tag, "HFP proxy lost")
+                    if (!isIntentionalDisconnect) {
+                        bluetoothAdapter?.getProfileProxy(context, this, BluetoothProfile.HEADSET)
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        // Request both profiles on initialization
+        bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
+        bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.HEADSET)
+    }
+
+    /**
+     * YOUR INTEGRATED FUNCTION: Cleanly disconnects profiles sequentially
+     * to protect your app's concurrent BLE links.
+     */
+    fun disconnectIfAudio(device: BluetoothDevice) {
+        if (!isClassicAudioDevice(device)) return
+
+        // Crucial step: Set this flag immediately so our proxies don't try to auto-reconnect!
+        setIntentionalDisconnect(true)
+        Log.d(tag, "Initiating safe, sequenced profile disconnect for ${device.address}")
+
+        try {
+            // 1. Force release system SCO/Microphone focus to pacify Telecom system_server
+            @Suppress("DEPRECATION")
+            if (audioManager.isBluetoothScoOn) {
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+                Log.d(tag, "Bluetooth SCO audio stream explicitly stopped")
+            }
+        } catch (e: Exception) { Log.e(tag, "Failed to stop SCO audio: ${e.message}") }
+
+        // 2. Disconnect A2DP (Media) immediately
+        a2dpProxy?.let { proxy ->
+            try {
+                proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java).invoke(proxy, device)
+                Log.d(tag, "A2DP disconnect invoked")
+            } catch (e: Exception) { Log.e(tag, "A2DP disconnect failed: ${e.message}") }
+        }
+
+        // 3. Postpone HFP (Call/Voice) disconnect to prevent a shared link-layer radio crash
+        handler.postDelayed({
+            hfpProxy?.let { proxy ->
+                try {
+                    proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java).invoke(proxy, device)
+                    Log.d(tag, "Sequenced HFP disconnect invoked")
+
+                    // Final state cleanup after the delay clears
+                    updateState(AudioProfileState.DISCONNECTED, device)
+                } catch (e: Exception) { Log.e(tag, "HFP disconnect failed: ${e.message}") }
+            }
+        }, 400L)
+    }
+
+    fun connectIfAudio(device: BluetoothDevice, delayMs: Long = 600L) {
+        if (!isClassicAudioDevice(device)) return
+        Log.d(tag, "Audio device detected (${device.address}), scheduling profile connects")
+
+        handler.postDelayed({
+            a2dpProxy?.let { proxy ->
+                try {
+                    val state = try { proxy.getConnectionState(device) } catch (_: SecurityException) { BluetoothProfile.STATE_DISCONNECTED }
+                    if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                        proxy.javaClass.getMethod("connect", BluetoothDevice::class.java).invoke(proxy, device)
+                        Log.d(tag, "A2DP connect invoked")
+                    }
+                } catch (e: Exception) { Log.e(tag, "A2DP connect failed: ${e.message}") }
+            }
+
+            hfpProxy?.let { proxy ->
+                try {
+                    val state = try { proxy.getConnectionState(device) } catch (_: SecurityException) { BluetoothProfile.STATE_DISCONNECTED }
+                    if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                        proxy.javaClass.getMethod("connect", BluetoothDevice::class.java).invoke(proxy, device)
+                        Log.d(tag, "HFP connect invoked")
+                    }
+                } catch (e: Exception) { Log.e(tag, "HFP connect failed: ${e.message}") }
+            }
+        }, delayMs)
+    }
+    fun setIntentionalDisconnect(intentional: Boolean) {
+        isIntentionalDisconnect = intentional
+        if (intentional) {
+            reconnectJob?.cancel()
+            reconnectAttempts.set(0)
+        }
+    }
+
+    private fun isClassicAudioDevice(device: BluetoothDevice): Boolean = try {
+        val type = device.type
+        val isClassicOrDual = type == BluetoothDevice.DEVICE_TYPE_CLASSIC || type == BluetoothDevice.DEVICE_TYPE_DUAL
+        val isAudioClass = device.bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO
+        isClassicOrDual && isAudioClass
+    } catch (_: SecurityException) { false }
 
     @SuppressLint("DiscouragedPrivateApi")
     private fun resolveCodec(device: BluetoothDevice): String {
@@ -85,9 +208,9 @@ class ClassicAudioProfileManager(
 
         return try {
 
-            val codecStatus = a2dp?.javaClass
+            val codecStatus = a2dpProxy?.javaClass
                 ?.getMethod("getCodecStatus", BluetoothDevice::class.java)
-                ?.invoke(a2dp, device)
+                ?.invoke(a2dpProxy, device)
                 ?: return "Unknown"
 
             val codecConfig = codecStatus.javaClass
@@ -127,37 +250,6 @@ class ClassicAudioProfileManager(
             "Unknown"
         }
     }
-    private val profileListener: BluetoothProfile.ServiceListener =
-        object : BluetoothProfile.ServiceListener {
-
-            override fun onServiceConnected(
-                profile: Int,
-                proxy: BluetoothProfile
-            ) {
-
-                if (profile == BluetoothProfile.A2DP) {
-
-                    a2dp = proxy as BluetoothA2dp
-
-                    checkCurrentlyConnectedDevices()
-                }
-            }
-            override fun onServiceDisconnected(profile: Int) {
-                if (profile == BluetoothProfile.A2DP) {
-                    a2dp = null
-                    updateState(AudioProfileState.DISCONNECTED)
-                    // Re-request proxy so it auto-recovers
-                    bluetoothAdapter?.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
-                }
-            }
-            }
-            init {
-                bluetoothAdapter?.getProfileProxy(
-                    context,
-                    profileListener,
-                    BluetoothProfile.A2DP
-                )
-            }
 
 
 
@@ -165,7 +257,7 @@ class ClassicAudioProfileManager(
 
     private fun checkCurrentlyConnectedDevices() {
 
-        val profile = a2dp ?: return
+        val profile = a2dpProxy ?: return
 
         if (!hasConnectPermission()) return
 
@@ -294,7 +386,7 @@ class ClassicAudioProfileManager(
     @Suppress("UNCHECKED_CAST")
     private fun tryReconnect(device: BluetoothDevice) {
 
-        val profile = a2dp ?: return
+        val profile = a2dpProxy ?: return
 
         if (!hasConnectPermission()) return
 
@@ -369,7 +461,7 @@ class ClassicAudioProfileManager(
 
         reconnectJob?.cancel()
 
-        a2dp?.let {
+        a2dpProxy?.let {
 
             bluetoothAdapter?.closeProfileProxy(
                 BluetoothProfile.A2DP,
@@ -379,7 +471,5 @@ class ClassicAudioProfileManager(
 
         managerScope.cancel()
     }
-    fun setIntentionalDisconnect(value: Boolean) {
-        isIntentionalDisconnect = value
-    }
+
 }

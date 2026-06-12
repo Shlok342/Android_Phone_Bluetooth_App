@@ -45,8 +45,11 @@ class ClassicConnectionManager(private val appContext: Context) {
     // ─── Timeout / Reconnect Constants ─────────────────────
     companion object {
         private const val CONNECTION_TIMEOUT_MS    = 10_000L
-        private const val READ_INACTIVITY_MS       = 30_000L
-        private const val READ_INACTIVITY_CHECK_MS =  5_000L
+        // Check every 10 seconds instead of 5 to reduce CPU overhead
+        private const val READ_INACTIVITY_CHECK_MS = 10_000L
+
+        // Increase the timeout window to 60 seconds (1 minute)
+        private const val READ_INACTIVITY_MS       = 90_000L
         private const val WRITE_TIMEOUT_MS         =  5_000L
         const val RECONNECT_MAX_ATTEMPTS   =  3
 
@@ -148,18 +151,28 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── Reconnect State ───────────────────────────────────
     private var lastDevice:            BluetoothDevice? = null
+    // AFTER
     private val bluetoothReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: android.content.Intent?) {
-            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED == intent?.action) {
-                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
-                val prevBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR)
+            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED != intent?.action) return
 
-                // User hit 'Cancel' or 'Reject' on the OS pairing window popup
-                if (bondState == BluetoothDevice.BOND_NONE && prevBondState == BluetoothDevice.BOND_BONDING) {
-                    Log.d("BLE_RECONNECT_BUG", "Pairing rejected by user system window. Killing threads.")
-                    disconnectInternal()
-                    updateState(ClassicState.DISCONNECTED)
-                }
+            val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+            else
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+
+            // Guard: only react to the Classic device we are currently connecting/connected to
+            val targetAddress = connectedDeviceAddress ?: lastDevice?.address ?: return
+            if (device?.address != targetAddress) return
+
+            val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+            val prevBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR)
+
+            if (bondState == BluetoothDevice.BOND_NONE && prevBondState == BluetoothDevice.BOND_BONDING) {
+                Log.d("BLE_RECONNECT_BUG", "Pairing rejected by user system window. Killing threads.")
+                disconnectInternal()
+                updateState(ClassicState.DISCONNECTED)
             }
         }
     }
@@ -475,28 +488,28 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── Read Loop ─────────────────────────────────────────
-    private fun startReading() {
-        readJob = managerScope.launch {
-            val buffer = ByteArray(1024)
-            while (isActive && _state.value == ClassicState.CONNECTED) {
-                try {
-                    val bytes = inputStream?.read(buffer) ?: break
-                    if (bytes > 0) {
-                        lastReadTime = System.currentTimeMillis()
-                        _rawBytes.tryEmit(buffer.copyOfRange(0, bytes))
-                        if (!isTransferMode) parser.feed(buffer, bytes)
+        private fun startReading() {
+            readJob = managerScope.launch {
+                val buffer = ByteArray(1024)
+                while (isActive && _state.value == ClassicState.CONNECTED) {
+                    try {
+                        val bytes = inputStream?.read(buffer) ?: break
+                        if (bytes > 0) {
+                            lastReadTime = System.currentTimeMillis()
+                            _rawBytes.tryEmit(buffer.copyOfRange(0, bytes))
+                            if (!isTransferMode) parser.feed(buffer, bytes)
+                        }
+                    } catch (_: IOException) {
+                        if (!isIntentionalDisconnect &&
+                            _state.value == ClassicState.CONNECTED) {
+                            forceDisconnect()
+                            lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
+                        }
+                        break
                     }
-                } catch (_: IOException) {
-                    if (!isIntentionalDisconnect &&
-                        _state.value == ClassicState.CONNECTED) {
-                        forceDisconnect()
-                        lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
-                    }
-                    break
                 }
             }
         }
-    }
 
     // ─── Send with Write Timeout ───────────────────────────
 
@@ -557,9 +570,9 @@ class ClassicConnectionManager(private val appContext: Context) {
         readJob?.cancel()
 
         // 3. Clear application streams
-        try { inputStream?.close() } catch (_: java.io.IOException) {}
-        try { outputStream?.close() } catch (_: java.io.IOException) {}
-        try { bluetoothSocket?.close() } catch (_: java.io.IOException) {}
+        try { inputStream?.close() } catch (_: IOException) {}
+        try { outputStream?.close() } catch (_: IOException) {}
+        try { bluetoothSocket?.close() } catch (_: IOException) {}
 
         // 4. Wipe references clean
         bluetoothSocket = null

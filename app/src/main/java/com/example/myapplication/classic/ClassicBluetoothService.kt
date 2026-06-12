@@ -40,8 +40,9 @@ class ClassicBluetoothService : Service() {
         fun getService(): ClassicBluetoothService = this@ClassicBluetoothService
     }
 
+
     private val binder = LocalBinder()
-    private var audioDeviceConnector: AudioDeviceConnector? = null
+
     // Using a SupervisorJob allows child coroutines to fail independently
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lastNotifTime = 0L
@@ -159,19 +160,27 @@ class ClassicBluetoothService : Service() {
         }
     fun fullDisconnect() {
         val address = _connectionManager?.connectedDeviceAddress
-        DeviceInsightManager.onAppEvent("UI: Initiating full disconnect for Classic ($address)")
+
+        // 1. Tell the manager it is a planned disconnect to halt auto-reconnections
         _audioProfileManager?.setIntentionalDisconnect(true)
+
+        // 2. Fire your clean local disconnection sequence
         _connectionManager?.disconnect()
+
         if (!address.isNullOrEmpty()) {
             try {
                 val device = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
                     .adapter.getRemoteDevice(address)
-                audioDeviceConnector?.disconnectIfAudio(device)
-                // Notify insight manager immediately
+
+                // 3. This safely executes the sequenced profile drop via your manager!
+                _audioProfileManager?.disconnectIfAudio(device)
+
                 DeviceInsightManager.onDisconnected(address, "User Request")
             } catch (_: Exception) {}
         }
     }
+
+
 
     override fun onBind(intent: Intent): IBinder = binder
 
@@ -196,7 +205,7 @@ class ClassicBluetoothService : Service() {
         _audioProfileManager =
             ClassicAudioProfileManager(this)
         _connectionManager = ClassicConnectionManager(this)
-        audioDeviceConnector = AudioDeviceConnector(this)
+
         _fileTransferManager = ClassicFileTransferManager(
             connectionManager = _connectionManager!!,
             context = this,
@@ -228,8 +237,10 @@ class ClassicBluetoothService : Service() {
         // Safeguard against uninitialized connectionManager if onCreate failed early
         _fileTransferManager?.reset()
         _fileTransferManager = null
-        audioDeviceConnector?.destroy()
-        audioDeviceConnector = null
+
+
+
+
         _connectionManager?.let {
             it.disconnect()
             it.destroy()
@@ -302,7 +313,10 @@ class ClassicBluetoothService : Service() {
                                 "Connection failed"
                         }
                 }
-                DeviceInsightManager.onAppEvent("Classic Connection: $stateText • Device=${info.deviceName}")
+                val deviceNameSnapshot = info.deviceName ?: "Unknown Device"
+
+
+                DeviceInsightManager.onAppEvent("Classic Connection: $stateText • Device=$deviceNameSnapshot")
                 if (info.state == ClassicState.CONNECTED) {
                     DeviceInsightManager.onAppEvent("Classic: Device ${info.deviceName} (${info.address}) Connected")
                     if (info.address.isNotEmpty()) {
@@ -326,7 +340,7 @@ class ClassicBluetoothService : Service() {
                     try {
                         val btAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
                         val device = btAdapter.getRemoteDevice(info.address)
-                        audioDeviceConnector?.connectIfAudio(device)
+                        _audioProfileManager?.connectIfAudio(device)
                     } catch (_: Exception) {}
                 }
                 updateNotification(

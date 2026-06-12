@@ -42,7 +42,7 @@ Kotlin class that implements an Android BLE ScanCallback. It processes individua
    - Lines: 23-29
    - **Description**
      - Handles a single ScanResult callback from the BLE scanner.
-     - Logs receipt of a raw result, checks permissions, and processes the single result via processSingleResult.
+     - Checks permissions and processes the single result via processSingleResult.
    - **Parameters description**
      - Takes the callback type and a single ScanResult and uses the permissionChecker to determine device name access.
    - **Parameters:**

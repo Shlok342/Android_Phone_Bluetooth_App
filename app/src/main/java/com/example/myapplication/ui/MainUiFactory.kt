@@ -42,6 +42,7 @@ data class UiComponents(
 )
 
 object MainUiFactory {
+
     fun build(
 
         activity: AppCompatActivity,
@@ -51,7 +52,7 @@ object MainUiFactory {
         classicDeviceMap: Map<String, BluetoothDevice>,
         onRefresh: () -> Unit,
         onStopScan: () -> Unit,
-        onDisconnect: () -> Unit,
+        onDisconnect:() -> Unit,
         onTabBle: () -> Unit,
         onTabClassic: () -> Unit,
         onFeatures: () -> Unit,
@@ -101,11 +102,14 @@ object MainUiFactory {
             textSize = 11f; letterSpacing = 0.03f
             setTextColor(activity.getColor(R.color.white))
             setBackgroundResource(R.drawable.bg_button_glass)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
+            backgroundTintList =
+                android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             stateListAnimator = null
             setPadding(12.dp(activity), 0, 12.dp(activity), 0)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity)).apply { marginStart = 8.dp(activity) }
+            layoutParams =
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity))
+                    .apply { marginStart = 8.dp(activity) }
             visibility = View.GONE
             setOnClickListener {
                 deviceAdapter.clearFilter()
@@ -232,11 +236,14 @@ object MainUiFactory {
             textSize = 11f; letterSpacing = 0.03f
             setTextColor(activity.getColor(R.color.white))
             setBackgroundResource(R.drawable.bg_button_glass)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
+            backgroundTintList =
+                android.content.res.ColorStateList.valueOf(activity.getColor(R.color.color_state_failed))
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             stateListAnimator = null
             setPadding(12.dp(activity), 0, 12.dp(activity), 0)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity)).apply { marginStart = 8.dp(activity) }
+            layoutParams =
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 28.dp(activity))
+                    .apply { marginStart = 8.dp(activity) }
             visibility = View.GONE
             setOnClickListener {
                 classicAdapter.clearFilter()
@@ -335,8 +342,10 @@ object MainUiFactory {
             setBackgroundResource(R.drawable.bg_button_glass)
             setPadding(24.dp(activity), 0, 24.dp(activity), 0)
             stateListAnimator = null
+
             setOnClickListener { onDisconnect() }
         }
+
 
         btnRow.addView(refreshBtn, LinearLayout.LayoutParams(0, 48.dp(activity), 1f).apply { marginEnd = 6.dp(activity) })
 

@@ -24,7 +24,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-
+import com.example.myapplication.classic.ClassicAudioProfileManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -60,6 +60,7 @@ import kotlinx.coroutines.launch
 import me.weishu.reflection.Reflection
 import com.example.myapplication.main_activity_helpers.hasConnectPermission
 import com.example.myapplication.main_activity_helpers.hasScanPermission
+
 
 
 class MainActivity : AppCompatActivity() {
@@ -192,6 +193,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bleUiController: BleUiController
     private var isBound = false
     private var classicService: ClassicBluetoothService? = null
+    private var classicAudioProfileManager: ClassicAudioProfileManager? = null
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
 
@@ -446,12 +448,27 @@ class MainActivity : AppCompatActivity() {
                 if (activeTab == ActiveTab.BLE) bleScanManager.stop() else stopClassicScan()
             },
             onDisconnect = {
-                DeviceInsightManager.onAppEvent("UI: Global Disconnect requested")
-                // Parallel Disconnect: Clear both systems regardless of active tab
-                SystemTimeline.log("⏏ Initiating global system disconnect")
-                bluetoothService?.disconnect()
-                classicService?.fullDisconnect()
-            },
+                when (activeTab) {
+                    ActiveTab.CLASSIC -> {
+                        // ✅ ONLY disconnect Classic when the user is on the Classic tab
+                        DeviceInsightManager.onAppEvent("UI: Classic Only Disconnect requested")
+                        SystemTimeline.log("⏏ Initiating Classic service disconnect")
+
+                        // Block auto-reconnect loops for Classic audio
+                        classicAudioProfileManager?.setIntentionalDisconnect(true)
+
+                        // Safely tear down Classic, leaving BLE completely untouched
+                        classicService?.fullDisconnect()
+                    }
+                    ActiveTab.BLE -> {
+                        // ✅ ONLY disconnect BLE when the user is on the BLE tab
+                        DeviceInsightManager.onAppEvent("UI: BLE Only Disconnect requested")
+                        SystemTimeline.log("⏏ Initiating BLE service disconnect")
+
+                        // Safely tear down BLE, leaving Classic completely untouched
+                        bluetoothService?.disconnect()
+                    }
+                }},
             onTabBle = {
                 DeviceInsightManager.onAppEvent("UI: Switched to BLE tab")
                 activeTab = ActiveTab.BLE
