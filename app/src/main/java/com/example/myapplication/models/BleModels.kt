@@ -26,7 +26,9 @@ enum class FilterType {
 data class BleConnectionInfo(
     val state: com.example.myapplication.ble.BleState,
     val address: String,
+    val failureMessage: String? = null,
     val batteryLevel: Int? = null
+
 )
 
 fun Int.dp(context: Context): Int {

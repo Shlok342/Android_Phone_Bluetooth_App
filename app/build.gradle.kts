@@ -44,6 +44,8 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.activity.ktx)
     implementation(libs.google.material)
     implementation(libs.nordic.ble.ktx)
     implementation(libs.androidx.appcompat)

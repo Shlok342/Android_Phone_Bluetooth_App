@@ -1,8 +1,10 @@
 package com.example.myapplication.ui.adapters
 
+import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import android.content.pm.PackageManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,6 +13,7 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.toColorInt
 import com.example.myapplication.R
 import com.example.myapplication.insights.DeviceInsightManager
@@ -24,7 +27,8 @@ class DeviceAdapter(
     private val adapterContext: Context,
     private val devices: MutableList<BleDeviceItem>,
     private val deviceMap: Map<String, BluetoothDevice>,
-    private val connectCallback: (BluetoothDevice) -> Unit
+    private val connectCallback: (BluetoothDevice) -> Unit,
+    private val forgetCallback: (BluetoothDevice) -> Unit
 ) : BaseAdapter() {
 
     override fun getCount() = displayList().size
@@ -102,8 +106,70 @@ class DeviceAdapter(
         val view = v ?: LayoutInflater.from(parent.context)
             .inflate(R.layout.device_item, parent, false)
 
-        view.findViewById<View>(R.id.forgetBtn).visibility = View.GONE
         val item = displayList()[p]
+        val displayName = DeviceNameStore.get(parent.context, item.address) ?: item.name
+        val forgetBtn = view.findViewById<ImageButton>(R.id.forgetBtn)
+
+        val device = deviceMap[item.address]
+
+        forgetBtn.visibility =
+            if (
+                ContextCompat.checkSelfPermission(
+                    parent.context,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+                &&
+                device?.bondState == BluetoothDevice.BOND_BONDED
+            ) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+        forgetBtn.setOnClickListener {
+
+            if (device == null) {
+                Toast.makeText(
+                    adapterContext,
+                    "Device not found",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            val dialogView = LayoutInflater.from(adapterContext)
+                .inflate(R.layout.dialog_forget_device_name, null)
+
+            val dialog = AlertDialog.Builder(adapterContext)
+                .setView(dialogView)
+                .create()
+
+            val titleText =
+                dialogView.findViewById<TextView>(R.id.dialogTitle)
+
+            val cancelBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnCancel)
+
+            val confirmForgetBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnForget)
+
+            titleText.text =
+                adapterContext.getString(
+                    R.string.confirmForget,
+                    displayName
+                )
+
+            cancelBtn.setOnClickListener {
+                dialog.dismiss()
+            }
+
+            confirmForgetBtn.setOnClickListener {
+                dialog.dismiss()
+                forgetCallback(device)
+            }
+
+            dialog.show()
+        }
+
         val card = view.findViewById<View>(R.id.deviceCard)
         val indicator = view.findViewById<View>(R.id.deviceIndicator)
         indicator.background.setTint(
@@ -114,7 +180,8 @@ class DeviceAdapter(
                 else -> "#EF4444".toColorInt()
             }
         )
-        val displayName = DeviceNameStore.get(parent.context, item.address) ?: item.name
+
+
         view.findViewById<TextView>(R.id.deviceName).text = displayName
 
         view.findViewById<TextView>(R.id.deviceAddress).text = item.address

@@ -11,6 +11,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.example.myapplication.ble.characteristics.BleCharacteristicWriter
+import com.example.myapplication.ble.characteristics.BleEnvironment
 import com.example.myapplication.classic.helpers.ConnectionSecurity
 import com.example.myapplication.insights.DeviceInsightManager
 import com.example.myapplication.models.BleConnectionInfo
@@ -19,12 +21,16 @@ import com.example.myapplication.util.BluetoothPermissionUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class BleState {
@@ -54,7 +60,6 @@ class BluetoothService : Service() {
             "00002a19-0000-1000-8000-00805f9b34fb"
         )
     override fun onBind(intent: Intent): IBinder = binder
-
     // ─── Coroutines ──────────────────────────────────────────────────────────
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -89,9 +94,66 @@ class BluetoothService : Service() {
         return connectionSecurity
     }
 
+
+
+
+
+        // ...
+
+        private val bleEnvironment = object : BleEnvironment {
+            override val bluetoothGatt get() = this@BluetoothService.bluetoothGatt
+            override val currentState get() = this@BluetoothService.currentState
+
+            // --- Provide the new properties ---
+            override val subscribedCharacteristics get() = this@BluetoothService.subscribedCharacteristics
+            override val batteryCharacteristicUuid get() = this@BluetoothService.batteryCharacteristicUuid
+            // ----------------------------------
+            override val cccdUuid get() = this@BluetoothService.cccdUuid
+            override fun addSubscribedCharacteristic(uuid: String) {
+                subscribedCharacteristics.add(uuid)
+            }
+            override fun updateBatteryLevel(percent: Int) {
+                _batteryLevel.value = percent
+            }
+            override fun enqueue(action: () -> Unit) = this@BluetoothService.enqueue(action)
+            override fun emitMessage(message: String) { _messages.tryEmit(message) }
+            override fun gattOperationComplete() = this@BluetoothService.gattOperationComplete()
+        }
+
+        // Instantiate your new setup class
+        private val deviceSetup = BleCharacteristicWriter(bleEnvironment)
+
     private lateinit var bleNotificationManager: BleNotificationManager
     private val subscribedCharacteristics = mutableSetOf<String>()
+    private val _events = MutableSharedFlow<String>(
+        replay = 0,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    private fun logEvent(msg: String) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            .format(Date())
+        _events.tryEmit("[$time] $msg")
+    }
+    fun forgetDevice(device: BluetoothDevice): Boolean {
+        return try {
 
+            if (connectedDeviceAddress == device.address) {
+                disconnect()
+            }
+
+            val method = device.javaClass.getMethod("removeBond")
+            method.invoke(device)
+
+            true
+
+        } catch (e: Exception) {
+
+            logEvent("Failed to forget device: ${e.message}")
+
+            false
+        }
+    }
     // ─── Timeout Management ───────────────────────────────────────────────────
     private val timeoutHandler = Handler(Looper.getMainLooper())
     private var timeoutRunnable: Runnable? = null
@@ -284,7 +346,11 @@ class BluetoothService : Service() {
                 currentState = BleState.FAILED
                 connectionSecurity =
                     ConnectionSecurity.UNKNOWN
+
+// UPDATE THIS LINE (Replace your existing connectionInfo emission line with this):
+                _connectionInfo.value = BleConnectionInfo(BleState.FAILED, address, failureMessage)
                 return
+
             }
 
             when (newState) {
@@ -376,7 +442,7 @@ class BluetoothService : Service() {
             enqueue {
                 try { gatt.requestMtu(512) } catch (_: SecurityException) { gattOperationComplete() }
             }
-            setupCharacteristics(gatt)
+            deviceSetup.setupCharacteristics(gatt)
             currentState = BleState.READY
             connectionSecurity =
                 ConnectionSecurity.SECURE
@@ -390,63 +456,13 @@ class BluetoothService : Service() {
             value: ByteArray,
             status: Int
         ) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-
-                if (
-                    characteristic.uuid ==
-                    batteryCharacteristicUuid
-                ) {
-                    if (value.isNotEmpty()) {
-
-                        val batteryPercent =
-                            value[0].toInt() and 0xFF
-
-                        _batteryLevel.value =
-                            batteryPercent
-
-                        _messages.tryEmit(
-                            "[Battery] $batteryPercent%"
-                        )
-
-                        DeviceInsightManager.addDeviceEvent(
-                            gatt.device.address,
-                            "Battery Level: $batteryPercent%"
-                        )
-                    }
-                }
-
-                DeviceInsightManager.addDeviceEvent(
-                    gatt.device.address,
-                    "Read Characteristic: ${characteristic.uuid}"
-                )
-
-                val hex =
-                    value.joinToString(" ") {
-                        "%02X".format(it)
-                    }
-
-                val text = try {
-                    String(value, Charsets.UTF_8)
-                } catch (_: Exception) {
-                    "Unreadable"
-                }
-
-                _messages.tryEmit(
-                    "[Read] ${characteristic.uuid} → Hex: $hex | Text: $text"
-                )
-            }
-
-            gattOperationComplete()
+            deviceSetup.onCharacteristicRead(gatt,characteristic,value,status)
         }
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             @Suppress("DEPRECATION")
-            val value = characteristic.value ?: return
-            val hex = value.joinToString(" ") { "%02X".format(it) }
-            val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
-            _messages.tryEmit("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
-            gattOperationComplete()
+            deviceSetup.onCharacteristicRead(gatt,characteristic, status)
         }
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -464,14 +480,7 @@ class BluetoothService : Service() {
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            val uuid = descriptor.characteristic.uuid.toString()
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                subscribedCharacteristics.add(uuid)
-                _messages.tryEmit("[Subscribed] ${descriptor.characteristic.uuid}")
-            } else {
-                _messages.tryEmit("[Subscribe Failed] ${descriptor.characteristic.uuid}")
-            }
-            gattOperationComplete()
+            deviceSetup.onDescriptorWrite(gatt,descriptor,status)
         }
 
 
@@ -480,49 +489,15 @@ class BluetoothService : Service() {
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            val uuid = characteristic.uuid.toString()
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Write OK: $uuid")
-                _messages.tryEmit("[Write OK] $uuid")
-            } else {
-                DeviceInsightManager.addDeviceEvent(gatt.device.address, "Write Failed: $uuid (status $status)")
-                _messages.tryEmit("[Write Failed] $uuid (status $status)")
-            }
-            gattOperationComplete()
+            deviceSetup.onCharacteristicWrite(gatt,characteristic,status)
         }
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            val uuid = characteristic.uuid.toString().lowercase()
-            
-            if (uuid == "00002a37-0000-1000-8000-00805f9b34fb") {
-                val parsed = BleDataParser.parseHeartRate(value)
-                updateNotificationThrottled(parsed)
-                _messages.tryEmit("[Notify] $parsed")
-                return
-            }
-
-            val hex = value.joinToString(" ") { "%02X".format(it) }
-            val text = BleDataParser.parseText(value)
-            updateNotificationThrottled("📡 ${characteristic.uuid.toString().take(4)}: $text")
-            _messages.tryEmit("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
+            deviceSetup.onCharacteristicChanged(gatt,characteristic,value)
         }
 
         @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            @Suppress("DEPRECATION")
-            val value = characteristic.value ?: return
-            val uuid = characteristic.uuid.toString().lowercase()
-
-            if (uuid == "00002a37-0000-1000-8000-00805f9b34fb") {
-                val parsed = BleDataParser.parseHeartRate(value)
-                updateNotificationThrottled(parsed)
-                _messages.tryEmit("[Notify] $parsed")
-                return
-            }
-
-            val hex = value.joinToString(" ") { "%02X".format(it) }
-            val text = BleDataParser.parseText(value)
-            updateNotificationThrottled("📡 ${characteristic.uuid.toString().take(4)}: $text")
-            _messages.tryEmit("[Notify] ${characteristic.uuid} → Hex: $hex | Text: $text")
+            deviceSetup.onCharacteristicChanged(gatt,characteristic)
         }
     }
 
@@ -551,128 +526,7 @@ class BluetoothService : Service() {
         }, 600)
     }
 
-    private fun setupCharacteristics(
-        gatt: BluetoothGatt
-    ) {
-        val services =
-            gatt.services ?: return
 
-        _messages.tryEmit(
-            "[System] Found ${services.size} services"
-        )
-
-        for (service in services) {
-
-            _messages.tryEmit(
-                "[Service] ${
-                    BleGattRegistry.identifyService(
-                        service.uuid.toString()
-                    )
-                }\n${service.uuid}"
-            )
-
-            for (characteristic in service.characteristics) {
-
-                _messages.tryEmit(
-                    "[Characteristic] ${
-                        BleGattRegistry.identifyCharacteristic(
-                            characteristic.uuid.toString()
-                        )
-                    }\n${characteristic.uuid}"
-                )
-
-                val uuid =
-                    characteristic.uuid
-                        .toString()
-                        .lowercase()
-
-                if (
-                    BlePeripheralPolicy.shouldAutoSubscribe(
-                        characteristic
-                    )
-                ) {
-                    enqueue {
-                        enableNotifications(
-                            characteristic
-                        )
-                    }
-                }
-
-                if (
-                    characteristic.uuid ==
-                    batteryCharacteristicUuid
-                ) {
-                    enqueue {
-                        try {
-                            gatt.readCharacteristic(
-                                characteristic
-                            )
-                        } catch (_: SecurityException) {
-                            gattOperationComplete()
-                        }
-                    }
-                }
-
-                else if (
-                    BlePeripheralPolicy.shouldAutoRead(
-                        uuid
-                    )
-                ) {
-                    enqueue {
-                        try {
-                            gatt.readCharacteristic(
-                                characteristic
-                            )
-                        } catch (_: SecurityException) {
-                            gattOperationComplete()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun enableNotifications(characteristic: BluetoothGattCharacteristic) {
-        val uuid = characteristic.uuid.toString()
-        if (subscribedCharacteristics.contains(uuid)) {
-            gattOperationComplete()
-            return
-        }
-
-        val gatt = bluetoothGatt ?: run { gattOperationComplete(); return }
-
-        try {
-            val notificationEnabled = gatt.setCharacteristicNotification(characteristic, true)
-            if (!notificationEnabled) {
-                gattOperationComplete()
-                return
-            }
-
-            _messages.tryEmit("[Trying Notify] ${characteristic.uuid}")
-            val descriptor = characteristic.getDescriptor(cccdUuid)
-            if (descriptor == null) {
-                gattOperationComplete()
-                return
-            }
-
-            val value = when {
-                characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 -> BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0 -> BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                else -> { gattOperationComplete(); return }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeDescriptor(descriptor, value)
-            } else {
-                @Suppress("DEPRECATION")
-                descriptor.value = value
-                @Suppress("DEPRECATION")
-                gatt.writeDescriptor(descriptor)
-            }
-        } catch (_: SecurityException) {
-            gattOperationComplete()
-        }
-    }
 
     fun connect(device: BluetoothDevice) {
         DeviceInsightManager.onAppEvent("BLE: Initiating connection to ${device.address}")
@@ -723,52 +577,7 @@ class BluetoothService : Service() {
             isDisconnecting = false
         }, 500)
     }
-    /**
-     * Queues a write to [uuid]. Auto-selects WRITE vs WRITE_NO_RESPONSE from
-     * the characteristic's declared properties. Returns false if the
-     * characteristic is not found or the connection isn't READY.
-     */
-    fun writeCharacteristic(uuid: String, value: ByteArray): Boolean {
-        val gatt = bluetoothGatt ?: return false
-        if (currentState != BleState.READY) return false
 
-        val characteristic = gatt.services
-            ?.flatMap { it.characteristics }
-            ?.firstOrNull { it.uuid.toString().equals(uuid, ignoreCase = true) }
-            ?: return false
-
-        val writeType = when {
-            characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ->
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0 ->
-                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            else -> return false
-        }
-        val noAck = writeType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-
-        enqueue {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gatt.writeCharacteristic(characteristic, value, writeType)
-                } else {
-                    @Suppress("DEPRECATION")
-                    characteristic.value = value
-                    @Suppress("DEPRECATION")
-                    characteristic.writeType = writeType
-                    @Suppress("DEPRECATION")
-                    gatt.writeCharacteristic(characteristic)
-                }
-                // WRITE_NO_RESPONSE never fires onCharacteristicWrite, so drain the queue now
-                if (noAck) {
-                    _messages.tryEmit("[Write] ${characteristic.uuid} (no-ack)")
-                    gattOperationComplete()
-                }
-            } catch (_: SecurityException) {
-                gattOperationComplete()
-            }
-        }
-        return true
-    }
     private fun disconnectInternal() {
         cancelTimeout()
         synchronized(gattQueue) { gattQueue.clear() }
@@ -801,14 +610,6 @@ class BluetoothService : Service() {
         lastConnectedDevice = null
     }
 
-    private var lastNotifTime = 0L
-    private fun updateNotificationThrottled(text: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastNotifTime > 1500) {
-            lastNotifTime = now
-            bleNotificationManager.updateNotification(text)
-        }
-    }
 
     override fun onCreate() {
         super.onCreate()

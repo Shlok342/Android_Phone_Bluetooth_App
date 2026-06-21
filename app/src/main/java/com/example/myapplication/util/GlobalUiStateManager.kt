@@ -10,8 +10,10 @@ import com.example.myapplication.ui.GlassmorphicBackgroundView
  */
 class GlobalUiStateManager(private val backgroundView: GlassmorphicBackgroundView) {
 
-    private var lastBleState: BleState = BleState.IDLE
-    private var lastClassicState: ClassicState = ClassicState.IDLE
+    var lastBleState: BleState = BleState.IDLE
+        private set
+   var lastClassicState: ClassicState = ClassicState.IDLE
+        private set
 
     fun updateBleState(state: BleState) {
         lastBleState = state

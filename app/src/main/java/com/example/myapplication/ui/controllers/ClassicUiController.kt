@@ -40,12 +40,21 @@ class ClassicUiController (
     private val getConnectedDeviceName: () -> String?
 ){
     // 1. UPDATED: Accepts CharSequence now to support Colors/Spannables
+    // 1. UPDATED: Accepts CharSequence now to support Colors/Spannables
     private fun animateStatusText(tv: TextView, newText: CharSequence) {
         // Compare string content to avoid loops, as CharSequence equals is strict
         if (tv.text.toString() == newText.toString()) return
 
+        // SURGICAL FIX: Prevent late Classic broadcast text from overwriting a successful Classic connection
+        if (getClassicState() == ClassicState.CONNECTED) {
+            if (newText.toString() == activity.getString(R.string.connected)) {
+                return // Drop the late "Paired" broadcast text on the floor!
+            }
+        }
+
         tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
-            tv.text = newText
+
+        tv.text = newText
             tv.translationY = 8f
             tv.animate().alpha(1f).translationY(0f).setDuration(240).start()
         }.start()
@@ -199,6 +208,10 @@ class ClassicUiController (
             is FileTransferState.Failed -> transferStatusText.text = activity.getString(R.string.transfer_failed, state.reason)
             is FileTransferState.Cancelled -> transferStatusText.text = activity.getString(R.string.transfer_cancelled)
         }
+    }
+
+    private fun getClassicState(): ClassicState {
+        return globalUiStateManager.lastClassicState
     }
 
     fun showFeaturesSheet() {

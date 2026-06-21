@@ -38,7 +38,7 @@ class BleUiController(
     private val uiHandler = Handler(Looper.getMainLooper())
     private var delayedStatusRunnable: Runnable? = null
 
-    // 1. NEW: Helper to determine color based on percentage
+    //Helper to determine color based on percentage
     private fun getBatteryColor(level: Int): Int {
         return when {
             level <= 15 -> "#EF5350".toColorInt() // Red
@@ -47,12 +47,13 @@ class BleUiController(
         }
     }
 
-    // 2. UPDATED: Signature now includes batteryLevel
+    // Signature now includes batteryLevel
     fun updateStatusUi(
         state: BleState,
         address: String,
         security: ConnectionSecurity,
-        batteryLevel: Int? = null
+        batteryLevel: Int? = null,
+        failureMessage: String? = null
     ) {
         // ALWAYS cancel pending timers when ANY state change occurs
         cancelDelayedStatus()
@@ -66,7 +67,7 @@ class BleUiController(
             else -> ""
         }
 
-        // 3. UPDATED: Logic to build colored text objects
+        // Logic to build colored text objects
         val finalMessage: CharSequence = when (state) {
             BleState.IDLE -> activity.getString(R.string.not_connected)
 
@@ -77,13 +78,16 @@ class BleUiController(
 
             BleState.BONDING -> {
                 startDelayedStatus(activity.getString(R.string.taking_longer_than_expected_may_disconnect), 4000L)
-                activity.getString(R.string.pairing_new) + " " + name
+                activity.getString(R.string.pairing) + " " + name
             }
 
             BleState.DISCOVERING_SERVICES -> {
                 startDelayedStatus("Setting up services...", 5000L)
                 activity.getString(R.string.paired_connecting)
             }
+
+
+
 
             BleState.READY -> {
                 ConnectionFeedbackHelper.onConnected(statusText)
@@ -120,7 +124,14 @@ class BleUiController(
                 "🔴 Disconnected"
             }
 
-            BleState.FAILED -> "❌ Connection Failed"
+            BleState.FAILED -> {
+                if (!failureMessage.isNullOrEmpty()) {
+                    "❌ Failure: $failureMessage"
+                } else {
+                    "❌ Connection Failed"
+                }
+            }
+
         }
 
         animateStatusText(statusText, finalMessage)
@@ -142,12 +153,21 @@ class BleUiController(
         delayedStatusRunnable = null
     }
 
-    // 4. UPDATED: Accepts CharSequence to support both String and SpannableStringBuilder
+    //  Accepts CharSequence to support both String and SpannableStringBuilder
     private fun animateStatusText(tv: TextView, newText: CharSequence) {
         if (tv.text.toString() == newText.toString()) return
 
+        //  Prevent late broadcast text from freezing the screen if already connected
+        val activeState = getCurrentState()
+        if (activeState == BleState.READY || activeState == BleState.DISCOVERING_SERVICES) {
+            if (newText.toString() == activity.getString(R.string.paired_connecting)) {
+                return
+            }
+        }
+
         tv.animate().alpha(0f).translationY(-8f).setDuration(160).withEndAction {
-            tv.text = newText
+
+        tv.text = newText
             tv.translationY = 8f
             tv.animate().alpha(1f).translationY(0f).setDuration(240).start()
         }.start()
@@ -187,4 +207,8 @@ class BleUiController(
         bottomSheetDialog = null
         bottomSheetList = null
     }
+    fun getCurrentState(): BleState {
+        return globalUiStateManager.lastBleState
+    }
+
 }

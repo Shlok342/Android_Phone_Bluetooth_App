@@ -16,6 +16,7 @@ import com.example.myapplication.models.dp
 import com.example.myapplication.ui.adapters.ClassicDeviceAdapter
 import com.example.myapplication.ui.adapters.DeviceAdapter
 import com.example.myapplication.ui.sheets.DeviceSearchSheet
+
 import com.google.android.material.button.MaterialButton
 
 data class UiComponents(
@@ -58,16 +59,27 @@ object MainUiFactory {
         onFeatures: () -> Unit,
         connectBleCallback: (BluetoothDevice) -> Unit,
         connectClassicCallback: (BluetoothDevice) -> Unit,
-        onForgetClassicDevice: (BluetoothDevice) -> Unit
+        onForgetClassicDevice: (BluetoothDevice) -> Unit,
+        onForgetBleDevice: (BluetoothDevice) -> Unit
     ): UiComponents {
         val deviceAdapter = DeviceAdapter(
             adapterContext = activity,
             devices = bleDeviceList,
             deviceMap = bleDeviceMap,
-            connectCallback = { device -> connectBleCallback(device) }
+            connectCallback = { device -> connectBleCallback(device) },
+            forgetCallback= onForgetBleDevice
+        )
+        val bluetoothFiltering = com.example.myapplication.util.Filtering(
+            permissionChecker = {
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    activity,
+                    android.Manifest.permission.BLUETOOTH_CONNECT
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
         )
         val classicAdapter = ClassicDeviceAdapter(
             adapterContext = activity,
+            filtering = bluetoothFiltering,
             devices = classicDeviceList,
             deviceMap = classicDeviceMap,
             connectCallback = { device -> connectClassicCallback(device) },
@@ -257,8 +269,8 @@ object MainUiFactory {
             visibility = View.GONE
             addView(classicTextHeader)
             addView(classicClearFilterBtn)
-            addView(classicFilterBtn)
             addView(classicBluetoothBtn)
+            addView(classicFilterBtn)
             addView(classicFeaturesBtn)
             addView(classicSearchBtn)
 

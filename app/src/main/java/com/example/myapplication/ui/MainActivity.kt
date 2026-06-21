@@ -18,7 +18,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -28,27 +27,22 @@ import com.example.myapplication.classic.ClassicAudioProfileManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.example.myapplication.R
 import com.example.myapplication.ble.BleState
 import com.example.myapplication.ble.BluetoothService
 import com.example.myapplication.ble.scanners.BleScanManager
-import com.example.myapplication.classic.AudioProfileState
 import com.example.myapplication.classic.ClassicBluetoothService
-import com.example.myapplication.classic.ClassicConnectionManager
 import com.example.myapplication.classic.ClassicScanReceiver
-import com.example.myapplication.classic.file_transfer.FileTransferState
-import com.example.myapplication.classic.file_transfer.TransferDirection
 import com.example.myapplication.classic.helpers.ConnectionSecurity
-import com.example.myapplication.classic.messages.ClassicMessage
 import com.example.myapplication.insights.DeviceInsightManager
+import com.example.myapplication.insights.FunctionsGet
 import com.example.myapplication.main_activity_helpers.BluetoothBlockerOverlay
 import com.example.myapplication.main_activity_helpers.BluetoothManagerWrapper
 import com.example.myapplication.models.ActiveTab
 import com.example.myapplication.models.BleDeviceItem
 import com.example.myapplication.models.ClassicDeviceItem
-import com.example.myapplication.models.ClassicState
 import com.example.myapplication.models.FilterType
 import com.example.myapplication.main_activity_helpers.BluetoothPermissionHandler
+import com.example.myapplication.main_activity_helpers.Hybridization
 import com.example.myapplication.ui.controllers.BleUiController
 import com.example.myapplication.ui.controllers.ClassicUiController
 import com.example.myapplication.ui.sheets.DeviceFilterSheet
@@ -60,6 +54,8 @@ import kotlinx.coroutines.launch
 import me.weishu.reflection.Reflection
 import com.example.myapplication.main_activity_helpers.hasConnectPermission
 import com.example.myapplication.main_activity_helpers.hasScanPermission
+import com.example.myapplication.main_activity_helpers.Hybridization_On_Connected
+import androidx.activity.viewModels
 
 
 
@@ -69,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         Reflection.unseal(base) // Bypasses hidden API blocks for the runtime session
     }
     private lateinit var btManager: BluetoothManagerWrapper
+    private lateinit var getFunction: FunctionsGet
     private val permissionHandler = BluetoothPermissionHandler(
         activity = this,
         onPermissionsGranted = {
@@ -87,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
 
     private var pendingRefresh = false
-    private var hasAudioEverConnected = false
+
     private var delayedStatusRunnable: Runnable? = null
     private var notifyScheduled = false
     private val notifyRunnable = Runnable {
@@ -189,10 +186,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ─── Service Binding ──────────────────────────────────────────────────────
+    private val hybridization: Hybridization by viewModels()
+    private val hybridizationForConnect : Hybridization_On_Connected by viewModels ()
     private var bluetoothService: BluetoothService? = null
     private lateinit var bleUiController: BleUiController
     private var isBound = false
-    private var classicService: ClassicBluetoothService? = null
+    private var classicService: ClassicBluetoothService? =null
     private var classicAudioProfileManager: ClassicAudioProfileManager? = null
     private var isClassicBound = false
     private var classicCollectorJob: Job? = null
@@ -272,13 +271,20 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch {
                         service.connectionInfo.collect { info ->
-                            bleUiController.updateStatusUi(info.state, info.address, bluetoothService?.getConnectionSecurity()
-                                ?: ConnectionSecurity.UNKNOWN, bleBatteryLevel)
+                            // Pass info.failureMessage as the fifth argument to updateStatusUi
+                            bleUiController.updateStatusUi(
+                                info.state,
+                                info.address,
+                                bluetoothService?.getConnectionSecurity() ?: ConnectionSecurity.UNKNOWN,
+                                bleBatteryLevel,
+                                info.failureMessage
+                            )
                             when (info.state) {
                                 BleState.CONNECTING    -> SystemTimeline.log("🔄 BLE connecting to ${service.connectedDeviceName ?: info.address}")
                                 BleState.READY         -> SystemTimeline.log("🟢 BLE connected: ${service.connectedDeviceName ?: info.address}")
                                 BleState.DISCONNECTED  -> SystemTimeline.log("🔇 BLE disconnected")
-                                BleState.FAILED        -> SystemTimeline.log("❌ BLE connection failed")
+                                // Logs the specific failure message to the timeline if available
+                                BleState.FAILED        -> SystemTimeline.log("❌ BLE connection failed: ${info.failureMessage ?: "Unknown error"}")
                                 BleState.BONDING       -> SystemTimeline.log("🔐 BLE bonding...")
                                 else -> {}
                             }
@@ -291,6 +297,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -304,102 +311,50 @@ class MainActivity : AppCompatActivity() {
     private val classicConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val service = (binder as ClassicBluetoothService.LocalBinder).getService()
+
             classicService = service
             isClassicBound = true
 
-            val manager = service.connectionManager
+            // 1. Hand off the service reference to your ViewModel to kick off all background data collections
+            hybridizationForConnect.onServiceConnected(service)
+            hybridizationForConnect.observeBleBattery(bluetoothService)
+
+            // 2. DRIVE THE UI REACTIVELY: Collect the public flows/channels exposed by your ViewModel
             classicCollectorJob = lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
+
+                    // Job A: Listen for persistent UI state updates (State, Address, Security, Battery)
                     launch {
-                        manager.connectionInfo.collect { info ->
-                            // EXISTING call — add the two highlighted params
-                            classicUiController.updateClassicStatusUi(
-                                state        = info.state,
-                                address      = info.address,
-                                security     = manager.getConnectionSecurity(),
-                                batteryLevel = info.batteryLevel,   // ← add
-                                batteryError = info.batteryError    // ← add
-                            )
-                            when (val s = info.state) {
-                                ClassicState.CONNECTING   -> SystemTimeline.log("🔄 Classic connecting to ${info.deviceName.ifBlank { info.address }}")
-                                ClassicState.CONNECTED    -> SystemTimeline.log("🟢 Classic connected: ${info.deviceName}")
-                                ClassicState.DISCONNECTED -> SystemTimeline.log("🔇 Classic disconnected")
-                                is ClassicState.RECONNECTING -> SystemTimeline.log("🔄 Classic reconnecting (${s.attempt}/${ClassicConnectionManager.RECONNECT_MAX_ATTEMPTS})")
-                                is ClassicState.FAILED    -> SystemTimeline.log("❌ Classic failed: ${s.reason}")
-                                else -> {}
+                        hybridizationForConnect.classicUiState.collect { uiState ->
+                            uiState?.let {
+                                classicUiController.updateClassicStatusUi(
+                                    it.state,
+                                    it.address,
+                                    it.security
+                                )
+                                // Pro-tip: You can now also access it.batteryLevel and it.batteryError here if your UI needs them!
                             }
                         }
                     }
 
-
+                    // Job B: Listen for live transient events (Text, File Transfers, A2DP Logs) for the Bottom Sheet
                     launch {
-                        manager.messages.collect { message ->
-                            val display = when (message) {
-                                is ClassicMessage.Text -> "[Classic] ${message.raw}  |  ${message.hex}"
-                                is ClassicMessage.Binary -> "[Classic Binary] ${message.bytes.size} bytes"
-                                is ClassicMessage.ParseError -> "[Parse Error] ${message.reason}"
-                            }
-                            bleUiController.showDataBottomSheet(display)
-                        }
-                    }
-                    launch {
-                        manager.events.collect { event -> bleUiController.showDataBottomSheet("[Log] $event") }
-                    }
-                    lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            bluetoothService?.batteryLevel?.collect { level ->
-                                bleBatteryLevel = level
-                            }
-                        }
-                    }
-                    launch {
-                        service.fileTransferManager.state.collect { state ->
-                            val msg = when (state) {
-                                is FileTransferState.Idle        -> null
-                                is FileTransferState.Sending     -> "⬆ ${state.filename}: ${(state.progress * 100).toInt()}%"
-                                is FileTransferState.Receiving   -> "⬇ ${state.filename}: ${(state.progress * 100).toInt()}%"
-                                is FileTransferState.Done        -> if (state.direction == TransferDirection.SEND) "✅ Sent: ${state.filename}" else "✅ Saved: ${state.filename}"
-                                is FileTransferState.Failed      -> "❌ ${state.reason}"
-                                is FileTransferState.Cancelled -> "⚠ Transfer cancelled"
-                            }
-                            if (msg != null) bleUiController.showDataBottomSheet("[Transfer] $msg")
-                            classicUiController.updateTransferUi(state)
-                        }
-                    }
-                    launch {
-                        service.audioProfileManager.connectionInfo.collect { info ->
-                            if (
-                                info.state == AudioProfileState.CONNECTED ||
-                                info.state == AudioProfileState.PLAYING
-                            ) {
-                                hasAudioEverConnected = true
-                            }
-                            val msg = when (val state = info.state) {
-                                AudioProfileState.IDLE ->
-                                    if (hasAudioEverConnected)
-                                        "Audio: Idle"
-                                    else
-                                        ""
-                                AudioProfileState.CONNECTING -> "🎧 Audio Connecting..."
-                                AudioProfileState.CONNECTED -> "🎧 Audio Connected: ${info.deviceName}"
-                                AudioProfileState.PLAYING -> "▶ Playing on ${info.deviceName}" + if (info.codecName.isNotEmpty()) " · ${info.codecName}" else ""
-                                AudioProfileState.DISCONNECTED -> "🔇 Audio Disconnected"
-                                is AudioProfileState.RECONNECTING -> "🔄 Audio Reconnecting (${state.attempt}/3)"
-                                is AudioProfileState.FAILED -> "❌ Audio Failed: ${state.reason}"
-                            }
-                            if (msg.isNotBlank()) {
-                                bleUiController.showDataBottomSheet("[A2DP] $msg")
-                            }
+                        hybridizationForConnect.bottomSheetMessages.collect { message ->
+                            // Route this text stream directly into your UI bottom sheet controller
+                            // e.g., bleUiController.showDataBottomSheet(message)
                         }
                     }
                 }
             }
 
-            classicUiController.updateClassicStatusUi(manager.state.value, manager.connectedDeviceAddress ?: "", manager.getConnectionSecurity())
-            if (activeTab == ActiveTab.CLASSIC) triggerClassicScan()
+            // 3. Keep immediate fallback logic for tab navigation
+            if (activeTab == ActiveTab.CLASSIC) {
+                triggerClassicScan()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
+            // Safe teardown: stop collecting background jobs when service drops out
             classicCollectorJob?.cancel()
             classicCollectorJob = null
             classicService = null
@@ -417,7 +372,7 @@ class MainActivity : AppCompatActivity() {
             checkConnectPermission = { hasConnectPermission() }, // Calls your existing Activity method
             checkScanPermission = { hasScanPermission() }       // Calls your existing Activity method
         )
-
+        getFunction = FunctionsGet(btManager)
         ui = MainUiFactory.build(
             activity = this,
             bleDeviceList = bleDeviceList,
@@ -439,13 +394,13 @@ class MainActivity : AppCompatActivity() {
                     }, 900)
                 } else {
                     SystemTimeline.log("🔄 Classic refresh triggered")
-                    stopClassicScan()
+                    getFunction.stopClassicScan()
                     this.triggerClassicScan()
                 }
             },
             onStopScan = {
                 DeviceInsightManager.onAppEvent("UI: Stop scan requested")
-                if (activeTab == ActiveTab.BLE) bleScanManager.stop() else stopClassicScan()
+                if (activeTab == ActiveTab.BLE) bleScanManager.stop() else getFunction.stopClassicScan()
             },
             onDisconnect = {
                 when (activeTab) {
@@ -489,7 +444,42 @@ class MainActivity : AppCompatActivity() {
                 DeviceInsightManager.onAppEvent("UI: Connecting to BLE device ${device.address}")
                 connectToDevice(device)
             },
+            onForgetBleDevice = onForgetBleDevice@{ device ->
 
+                if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                    Toast.makeText(
+                        this,
+                        "Device not bonded or does not require pairing",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@onForgetBleDevice
+                }
+
+                val success =
+                    bluetoothService?.forgetDevice(device)
+                        ?: false
+
+                if (success) {
+                    runOnUiThread {
+
+                        synchronized(bleDeviceList) {
+                            bleDeviceList.removeAll {
+                                it.address == device.address
+                            }
+
+                            bleDeviceMap.remove(device.address)
+                        }
+
+                        ui.deviceAdapter.notifyDataSetChanged()
+                    }
+                } else {
+                    Toast.makeText(
+                        this,
+                        "Failed to forget device",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
             connectClassicCallback =  { device ->
                 DeviceInsightManager.onAppEvent("UI: Connecting to Classic device ${device.address}")
                 classicService?.connectionManager?.connect(device)
@@ -625,13 +615,13 @@ class MainActivity : AppCompatActivity() {
                     when (type) {
                         FilterType.SAVED -> ui.deviceAdapter.applyFilterType(
                             type,
-                            saved = getSavedBleDevices()
+                            saved = getFunction.getSavedBleDevices()
                         )
 
                         FilterType.NONE -> ui.deviceAdapter.applyFilterType(type)
                         else -> ui.deviceAdapter.applyFilterType(
                             type,
-                            bonded = getBondedBleAddresses()
+                            bonded = getFunction.getBondedBleAddresses()
                         )
                     }
                     if (ui.deviceAdapter.count == 0 && type != FilterType.NONE)
@@ -655,7 +645,7 @@ class MainActivity : AppCompatActivity() {
                 currentFilter = activeClassicFilter,
                 onFilterSelected = { type ->
                     activeClassicFilter = type
-                    ui.classicAdapter.applyFilterType(type, bonded = getBondedClassicAddresses())
+                    ui.classicAdapter.applyFilterType(type, bonded = getFunction.getBondedClassicAddresses())
                     if (ui.classicAdapter.count == 0 && type != FilterType.NONE)
                         Toast.makeText(
                             this,
@@ -696,45 +686,13 @@ class MainActivity : AppCompatActivity() {
             }
         )
     }
-
-    // FROM: stopClassicScan()
-    private fun stopClassicScan() {
-        btManager.stopClassicScan()
-    }
-
-    // FROM: connectToDevice()
     private fun connectToDevice(device: BluetoothDevice) {
-        if (!isBound) return
         bleScanManager.stop()
-        val name = try { device.name ?: device.address } catch (_: SecurityException) { device.address }
-        SystemTimeline.log("🔗 BLE connect attempt: $name")
-        ui.statusText.text = getString(R.string.button_has_been_clicked)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            ui.listView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-        }
-        bluetoothService?.connect(device)
+
+        // Pass execution control over to the ViewModel
+        hybridization.connect(device, isBound, bluetoothService)
     }
 
-    // FROM: getSavedBleDevices()
-    private fun getSavedBleDevices(): List<BleDeviceItem> {
-        return btManager.getSavedBleDevices(
-            onDeviceMapped = { bleDeviceMap[it.address] = it }
-        )
-    }
-
-    // FROM: getBondedBleAddresses()
-    private fun getBondedBleAddresses(): Set<String> {
-        return btManager.getBondedAddresses { type ->
-            type == BluetoothDevice.DEVICE_TYPE_LE || type == BluetoothDevice.DEVICE_TYPE_DUAL
-        }
-    }
-
-    // FROM: getBondedClassicAddresses()
-    private fun getBondedClassicAddresses(): Set<String> {
-        return btManager.getBondedAddresses { type ->
-            type == BluetoothDevice.DEVICE_TYPE_CLASSIC || type == BluetoothDevice.DEVICE_TYPE_DUAL
-        }
-    }
     private fun startBluetoothService() {
         if (serviceStarted) return
         serviceStarted = true

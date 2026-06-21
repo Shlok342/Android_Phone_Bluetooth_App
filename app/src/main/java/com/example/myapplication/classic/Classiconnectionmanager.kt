@@ -593,22 +593,21 @@ class ClassicConnectionManager(private val appContext: Context) {
     fun forgetDevice(device: BluetoothDevice): Boolean {
         return try {
 
-            if (
-                connectedDeviceAddress == device.address
-            ) {
+            if (connectedDeviceAddress == device.address) {
                 disconnect()
             }
 
-            val method =
-                device.javaClass.getMethod("removeBond")
-
+            val method = device.javaClass.getMethod("removeBond")
             method.invoke(device)
 
             true
 
-        } catch (_: SecurityException) {
-            logEvent("SecurityException checking bond state before connect")
-        } as Boolean
+        } catch (e: Exception) {
+
+            logEvent("Failed to forget device: ${e.message}")
+
+            false
+        }
     }
     // ─── Permission / Device Helpers ───────────────────────
 

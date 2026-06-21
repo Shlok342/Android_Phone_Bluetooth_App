@@ -76,9 +76,7 @@ class BleScanCallback(
             rssi = result.rssi
         )
 
-        Log.d(
-         "BLE_SCAN",
-            "DEVICE FOUND: $name ${device.address}")
+
 
         onDeviceFound(newEntry, device)
     }

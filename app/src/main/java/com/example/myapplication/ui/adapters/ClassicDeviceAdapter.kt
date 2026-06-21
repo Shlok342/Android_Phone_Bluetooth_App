@@ -21,10 +21,13 @@ import com.example.myapplication.models.ClassicDeviceItem
 import com.example.myapplication.models.FilterType
 import com.example.myapplication.util.DeviceNameStore
 import com.example.myapplication.util.FavoriteStore
+import com.example.myapplication.util.Filtering
 import com.google.android.material.button.MaterialButton
+
 
 class ClassicDeviceAdapter(
     private val adapterContext: Context,
+    private val filtering: Filtering,
     private val devices: List<ClassicDeviceItem>,
     private val deviceMap: Map<String, BluetoothDevice>,
     private val connectCallback: (BluetoothDevice) -> Unit,
@@ -46,14 +49,27 @@ class ClassicDeviceAdapter(
 
     private fun displayList(): List<ClassicDeviceItem> {
         val currentDevices = synchronized(devices) { devices.toList() }
+        val classicOnlyDevices = currentDevices.filter { item ->
+            val device = deviceMap[item.address]
+
+            // UI Strategy: If the device isn't fully resolved in the map yet,
+            // do NOT show it in the Classic tab. Real classic devices resolve
+            // almost instantly, whereas BLE/Dual-mode "ghost" devices take time.
+            // Falling back to 'false' ensures a stable, flicker-free UI.
+            device?.let { filtering.isProbablyClassicCapable(it) } ?: false
+        }
+
         val currentBonded = bondedAddresses.toSet()
 
         val base = when (activeFilterType) {
-            FilterType.SAVED     -> currentDevices.filter { it.address in currentBonded }
-            FilterType.FAVORITES -> currentDevices.filter { FavoriteStore.isFavorite(adapterContext, it.address) }
-            FilterType.NEARBY    -> currentDevices.filter { it.address !in currentBonded }
-            FilterType.NONE      -> currentDevices
+            FilterType.SAVED     -> classicOnlyDevices.filter { it.address in currentBonded }
+            FilterType.FAVORITES -> classicOnlyDevices.filter { FavoriteStore.isFavorite(adapterContext, it.address) }
+            FilterType.NEARBY    -> classicOnlyDevices.filter { it.address !in currentBonded }
+            FilterType.NONE      -> classicOnlyDevices
         }
+
+
+        // 3. Final step: apply search query filter
         if (filterQuery.isEmpty()) return base
         return if (filterByMac) base.filter { it.address.contains(filterQuery, ignoreCase = true) }
         else base.filter {
@@ -84,10 +100,21 @@ class ClassicDeviceAdapter(
         }
     }
     private fun classicTypeLabel(type: Int): String = when (type) {
+        // This should theoretically never show up in the classic tab anymore
+        // thanks to our filter, but kept as a defensive UI fallback.
         BluetoothDevice.DEVICE_TYPE_DUAL -> "🔄 Dual Mode"
+
+        // Confirmed by the Android OS hardware layer.
         BluetoothDevice.DEVICE_TYPE_CLASSIC -> "📡 Classic"
-        else -> "📶 Bluetooth"
+
+        // If an UNKNOWN device survived our strict class/name filter,
+        // it means it's a real legacy device still fetching its profile.
+        BluetoothDevice.DEVICE_TYPE_UNKNOWN -> "📡 Classic (Identifying...)"
+
+        // Generic fallback for safety.
+        else -> "📡 Classic Device"
     }
+
 
     override fun getView(p: Int, v: View?, parent: ViewGroup): View {
         val view = v ?: LayoutInflater.from(parent.context).inflate(R.layout.device_item, parent, false)
@@ -98,24 +125,27 @@ class ClassicDeviceAdapter(
         view.findViewById<TextView>(R.id.deviceName).text = displayName
         view.findViewById<TextView>(R.id.deviceAddress).text = item.address
         val signalText = view.findViewById<TextView>(R.id.deviceSignal)
+        val liveType = deviceMap[item.address]?.type ?: item.type
 
-        signalText.text = classicTypeLabel(item.type)
+        signalText.text = classicTypeLabel(liveType)
         signalText.setTextColor(
-            when (item.type) {
+            when (liveType) {
                 BluetoothDevice.DEVICE_TYPE_DUAL -> "#22C55E".toColorInt()
                 BluetoothDevice.DEVICE_TYPE_CLASSIC -> "#60A5FA".toColorInt()
                 else -> "#A78BFA".toColorInt()
             }
         )
         indicator.background.setTint(
-            when (item.type) {
+            when (liveType) {
                 BluetoothDevice.DEVICE_TYPE_DUAL -> "#22C55E".toColorInt()
                 BluetoothDevice.DEVICE_TYPE_CLASSIC -> "#60A5FA".toColorInt()
                 else -> "#A78BFA".toColorInt()
             }
         )
-        val forgetBtn = view.findViewById<ImageButton>(R.id.forgetBtn)
+
         val device = deviceMap[item.address]
+        val forgetBtn = view.findViewById<ImageButton>(R.id.forgetBtn)
+
 
         forgetBtn.visibility =
             if (
@@ -131,28 +161,55 @@ class ClassicDeviceAdapter(
                 View.GONE
             }
 
-
         forgetBtn.setOnClickListener {
-
-
 
             if (device == null) {
                 Toast.makeText(
-                    adapterContext,                    "Device not found",
+                    adapterContext,
+                    "Device not found",
                     Toast.LENGTH_SHORT
                 ).show()
                 return@setOnClickListener
             }
 
-            AlertDialog.Builder(adapterContext)
-                .setTitle("Forget Device")
-                .setMessage("Forget $displayName?")
-                .setPositiveButton("Forget") { _, _ ->
-                    forgetCallback(device)
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            val dialogView = LayoutInflater.from(adapterContext)
+                .inflate(R.layout.dialog_forget_device_name, null)
+            val titleText =
+                dialogView.findViewById<TextView>(R.id.dialogTitle)
+            titleText.text =
+                adapterContext.getString(
+                    R.string.confirmForget,
+                    displayName
+                )
+
+
+
+
+            val dialog = AlertDialog.Builder(adapterContext)
+                .setView(dialogView)
+                .create()
+
+            val cancelBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnCancel)
+
+            val confirmForgetBtn =
+                dialogView.findViewById<MaterialButton>(R.id.btnForget)
+
+
+            cancelBtn.setOnClickListener {
+                dialog.dismiss()
+            }
+
+            confirmForgetBtn.setOnClickListener {
+                dialog.dismiss()
+                forgetCallback(device)
+            }
+
+            dialog.show()
         }
+
+
+
         view.findViewById<Button>(R.id.connectBtn).apply {
             isAllCaps = false
             setOnClickListener {
