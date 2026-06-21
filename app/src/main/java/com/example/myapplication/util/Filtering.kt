@@ -13,9 +13,9 @@ class Filtering (private val permissionChecker: () -> Boolean){
                     // Strictly Classic devices belong here (e.g., old car audio, legacy OBD)
                     BluetoothDevice.DEVICE_TYPE_CLASSIC -> true
 
-                    // Banish Dual-mode to the BLE tab. Consumers get a much better,
-                    // modern connection experience there without annoying PIN prompts.
-                    BluetoothDevice.DEVICE_TYPE_DUAL -> false
+                    // Dual-mode devices (e.g. earbuds: BLE for app control, Classic for A2DP
+                    // audio) belong on the Classic tab — Classic is the reliable transport.
+                    BluetoothDevice.DEVICE_TYPE_DUAL -> true
 
                     // Definitely LE - exclude entirely
                     BluetoothDevice.DEVICE_TYPE_LE -> false

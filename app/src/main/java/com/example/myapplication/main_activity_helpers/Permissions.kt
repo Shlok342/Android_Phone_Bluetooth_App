@@ -69,6 +69,6 @@ class BluetoothPermissionHandler(
         val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         return manager?.adapter?.isEnabled == true
     }
-    // Put this in a new file: ContextExt.kt
+
 
 }

@@ -80,7 +80,7 @@ class ClassicBluetoothService : Service() {
             )
         }
     }
-    //Unusdd until custom file transfer is implemented.
+    //Unused until custom file transfer is implemented.
     private fun saveReceivedFile(filename: String, bytes: ByteArray) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -164,7 +164,7 @@ class ClassicBluetoothService : Service() {
         // 1. Tell the manager it is a planned disconnect to halt auto-reconnections
         _audioProfileManager?.setIntentionalDisconnect(true)
 
-        // 2. Fire your clean local disconnection sequence
+        // 2. Fire clean local disconnection sequence
         _connectionManager?.disconnect()
 
         if (!address.isNullOrEmpty()) {
@@ -172,7 +172,7 @@ class ClassicBluetoothService : Service() {
                 val device = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
                     .adapter.getRemoteDevice(address)
 
-                // 3. This safely executes the sequenced profile drop via your manager!
+                // 3. This safely executes the sequenced profile drop via the manager!
                 _audioProfileManager?.disconnectIfAudio(device)
 
                 DeviceInsightManager.onDisconnected(address, "User Request")
@@ -186,6 +186,7 @@ class ClassicBluetoothService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        DeviceInsightManager.init(applicationContext)
         val filter = IntentFilter().apply {
 
             addAction(
@@ -313,7 +314,7 @@ class ClassicBluetoothService : Service() {
                                 "Connection failed"
                         }
                 }
-                val deviceNameSnapshot = info.deviceName ?: "Unknown Device"
+                val deviceNameSnapshot = info.deviceName
 
 
                 DeviceInsightManager.onAppEvent("Classic Connection: $stateText • Device=$deviceNameSnapshot")

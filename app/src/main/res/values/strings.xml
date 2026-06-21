@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">My Application</string>
+    <string name="app_name" translatable="false">OpenBlue</string>
     <string name="enable_bluetooth" translatable="false">Enable Bluetooth First</string>
     <string name="nearby_ble_devices" translatable="false">BLE Only Devices 📡</string>
     <string name="nearby_classic_devices" translatable="false">Classic + Ble Devices 📡</string>

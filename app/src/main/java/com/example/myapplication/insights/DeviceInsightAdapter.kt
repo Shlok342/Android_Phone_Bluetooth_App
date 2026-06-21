@@ -53,6 +53,6 @@ class DeviceInsightAdapter(
         items.clear()
         items.addAll(newItems)
 
-        notifyDataSetChanged()
+
     }
 }

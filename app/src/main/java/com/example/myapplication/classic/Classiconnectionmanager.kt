@@ -22,6 +22,7 @@ import com.example.myapplication.classic.messages.ReconnectScheduler
 import com.example.myapplication.classic.messages.SocketFactory
 import com.example.myapplication.classic.messages.SocketResult
 import com.example.myapplication.classic.messages.WriteQueue
+
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -69,7 +70,7 @@ class ClassicConnectionManager(private val appContext: Context) {
 
     // ─── State ─────────────────────────────────────────────
 
-    // Add this alongside your other properties inside ClassicConnectionManager
+
     private val batteryMonitor = BluetoothBatteryMonitor(appContext)
 
     // Expose the raw battery stream externally if needed
@@ -261,7 +262,7 @@ class ClassicConnectionManager(private val appContext: Context) {
         // 1. Clean up old resources (this sets isIntentionalDisconnect = true internally)
         disconnectInternal()
 
-        // 🛡️ FIX A: RESET the flag here because this is a deliberate, manual connection attempt!
+        // RESET the flag here because this is a deliberate, manual connection attempt!
         isIntentionalDisconnect = false
 
         lastDevice = device
@@ -473,18 +474,21 @@ class ClassicConnectionManager(private val appContext: Context) {
     }
 
     // ─── Timeout: Read Inactivity ──────────────────────────
+    //THIS IS FOR WHEN THE FILE TRANSFER WILL BE IMPLEMENTED.
     private fun startInactivityTimeout() {
-        inactivityTimeoutJob?.cancel()
-        inactivityTimeoutJob = managerScope.launch {
-            while (isActive && _state.value == ClassicState.CONNECTED) {
-                delay(READ_INACTIVITY_CHECK_MS)
-                if (!isTransferMode && System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
-                    forceDisconnect(FailureReason.Timeout)
-                    lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
-                    break
-                }
-            }
-        }
+//        inactivityTimeoutJob?.cancel()
+//        inactivityTimeoutJob = managerScope.launch {
+//            while (isActive && _state.value == ClassicState.CONNECTED) {
+//                delay(READ_INACTIVITY_CHECK_MS)
+//                // Change !isTransferMode to isTransferMode
+//                if (isTransferMode && System.currentTimeMillis() - lastReadTime >= READ_INACTIVITY_MS) {
+//                    DeviceInsightManager.onAppEvent("Classic Manager: Transfer stalled. Timing out.")
+//                    forceDisconnect(FailureReason.Timeout)
+//                    lastDevice?.let { reconnectScheduler.scheduleReconnect(it) }
+//                    break
+//                }
+//            }
+//        }
     }
 
     // ─── Read Loop ─────────────────────────────────────────

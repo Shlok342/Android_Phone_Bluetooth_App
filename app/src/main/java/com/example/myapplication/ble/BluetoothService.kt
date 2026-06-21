@@ -1,5 +1,6 @@
 package com.example.myapplication.ble
 
+import android.annotation.SuppressLint
 import android.app.*
 import android.bluetooth.*
 import android.content.BroadcastReceiver
@@ -32,6 +33,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+
 
 enum class BleState {
     IDLE,
@@ -98,7 +100,7 @@ class BluetoothService : Service() {
 
 
 
-        // ...
+
 
         private val bleEnvironment = object : BleEnvironment {
             override val bluetoothGatt get() = this@BluetoothService.bluetoothGatt
@@ -118,6 +120,18 @@ class BluetoothService : Service() {
             override fun enqueue(action: () -> Unit) = this@BluetoothService.enqueue(action)
             override fun emitMessage(message: String) { _messages.tryEmit(message) }
             override fun gattOperationComplete() = this@BluetoothService.gattOperationComplete()
+            @SuppressLint("MissingPermission")
+            override fun requestBondIfNeeded(status: Int) {
+                if (status != 5 && status != 15) return // not GATT_INSUFFICIENT_AUTHENTICATION/ENCRYPTION
+                val device = bluetoothGatt?.device ?: return
+                if (device.bondState != BluetoothDevice.BOND_NONE) return
+                this@BluetoothService.currentState = BleState.BONDING
+                bleNotificationManager.updateNotification("Pairing required for this device...")
+                startTimeout("Bonding timed out", 30000L)
+                try { device.createBond() } catch (_: SecurityException) {
+                    this@BluetoothService.currentState = BleState.FAILED
+                }
+            }
         }
 
         // Instantiate your new setup class
@@ -268,7 +282,15 @@ class BluetoothService : Service() {
     }
 
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-    
+    // ADD near cccdUuid definition
+    private fun refreshGattCache(gatt: BluetoothGatt): Boolean {
+        return try {
+            val method = gatt.javaClass.getMethod("refresh")
+            method.invoke(gatt) as? Boolean ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
     // ─── GATT Callback ────────────────────────────────────────────────────────
     private val gattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
 
@@ -286,9 +308,13 @@ class BluetoothService : Service() {
                     257  -> "GATT_CONN_FAIL_ESTABLISH"
                     else -> "GATT_STATUS_$status (undocumented)"
                 }
+                // AFTER
                 DeviceInsightManager.onAppEvent(
                     "BLE GATT error on $address → status=$status | $gattStatusLabel | appState=$currentState"
                 )
+                if (status == 133) refreshGattCache(gatt)
+                try { gatt.close() } catch (_: SecurityException) {}
+                bluetoothGatt = null
                 try { gatt.close() } catch (_: SecurityException) {}
                 bluetoothGatt = null
                 if (status == 133 && gatt133Attempts < MAX133RETRIES && !isDisconnecting) {
@@ -347,7 +373,7 @@ class BluetoothService : Service() {
                 connectionSecurity =
                     ConnectionSecurity.UNKNOWN
 
-// UPDATE THIS LINE (Replace your existing connectionInfo emission line with this):
+
                 _connectionInfo.value = BleConnectionInfo(BleState.FAILED, address, failureMessage)
                 return
 
@@ -369,17 +395,7 @@ class BluetoothService : Service() {
                     val bondState = try { gatt.device.bondState } catch (_: SecurityException) { BluetoothDevice.BOND_BONDED }
 
                     when (bondState) {
-                        BluetoothDevice.BOND_NONE -> {
-                            currentState = BleState.BONDING
-                            bleNotificationManager.updateNotification("Waiting for pairing...")
-                            startTimeout("Bonding timed out", 30000L)
-                            try { gatt.device.createBond() } catch (_: SecurityException) {
-                                currentState = BleState.FAILED
-                                connectionSecurity =
-                                    ConnectionSecurity.UNKNOWN
-                                bleNotificationManager.updateNotification("Permission error during bonding")
-                            }
-                        }
+
                         BluetoothDevice.BOND_BONDING -> {
                             currentState = BleState.BONDING
                             bleNotificationManager.updateNotification("Bonding in progress...")

@@ -135,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Add the view to your root layout hierarchy
+        // Add the view to the root layout hierarchy
         ui.rootFrame.addView(btBlocker)
 
         // Show system dialog immediately on first show
@@ -332,7 +332,7 @@ class MainActivity : AppCompatActivity() {
                                     it.address,
                                     it.security
                                 )
-                                // Pro-tip: You can now also access it.batteryLevel and it.batteryError here if your UI needs them!
+                                //  You can now also access it.batteryLevel and it.batteryError here if your UI needs them!
                             }
                         }
                     }
@@ -369,8 +369,8 @@ class MainActivity : AppCompatActivity() {
         btManager = BluetoothManagerWrapper(
             context = this,
             scope = lifecycleScope,
-            checkConnectPermission = { hasConnectPermission() }, // Calls your existing Activity method
-            checkScanPermission = { hasScanPermission() }       // Calls your existing Activity method
+            checkConnectPermission = { hasConnectPermission() }, // Calls existing Activity method
+            checkScanPermission = { hasScanPermission() }       // Calls existing Activity method
         )
         getFunction = FunctionsGet(btManager)
         ui = MainUiFactory.build(

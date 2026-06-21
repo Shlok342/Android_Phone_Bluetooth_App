@@ -4,7 +4,11 @@ import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
+import android.os.Handler
+import android.os.Looper
 import com.example.myapplication.util.BluetoothUuidRegistry
 import com.example.myapplication.util.CharacteristicPropertyParser
 import com.example.myapplication.classic.AudioProfileState
@@ -14,14 +18,60 @@ object DeviceInsightManager {
     private val sessions = mutableMapOf<String, DeviceInsightSession>()
     private val appEvents = mutableListOf<DeviceEvent>()
 
+    private var audioManager: AudioManager? = null
+    private val audioPlaybackCallback = object : AudioManager.AudioPlaybackCallback() {
+        override fun onPlaybackConfigChanged(configs: List<AudioPlaybackConfiguration>) {
+            super.onPlaybackConfigChanged(configs)
+            // Whenever playback config changes, re-check if music is active
+            updateAudioPlayingState()
+        }
+        private fun updateAudioPlayingState() {
+            if (audioManager == null) return
+
+            // 1. Is the system playing media right now?
+            val isMusicActive = audioManager?.isMusicActive == true
+
+            // 2. Is the active audio output routed to a Bluetooth device?
+            val activeDevices = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val isRoutedToBluetooth = activeDevices?.any { device ->
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                        device.type == AudioDeviceInfo.TYPE_HEARING_AID
+            } == true
+
+            // 3. Only count as "playing" if media is active AND it's on Bluetooth
+            val isPlayingOnHeadphones = isMusicActive && isRoutedToBluetooth
+
+            // Update all active sessions
+            sessions.values.forEach { session ->
+                if (session.isAudioDevice) {
+                    if (session.isAudioPlaying != isPlayingOnHeadphones) {
+                        val statusText = if (isPlayingOnHeadphones) "Started" else "Stopped"
+                        addDeviceEvent(session.macAddress, "Audio Playback $statusText")
+                    }
+                    session.isAudioPlaying = isPlayingOnHeadphones
+                }
+            }
+        }}
     fun onAppEvent(message: String) {
         appEvents.add(DeviceEvent(System.currentTimeMillis(), message))
         if (appEvents.size > 200) appEvents.removeAt(0)
     }
 
     fun getAppEvents(): List<DeviceEvent> = appEvents
+    fun init(context: Context) {
+        if (audioManager == null) {
+            audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            // Register the callback to listen for ALL audio changes
+            audioManager?.registerAudioPlaybackCallback(
+                audioPlaybackCallback,
+                Handler(Looper.getMainLooper())
+            )
+        }
+    }
 
     fun onDeviceConnected(device: BluetoothDevice, transport: String, context: Context) {
+        if (audioManager == null) init(context)
         val session = DeviceInsightSession(
             deviceName = try {
                 device.name ?: "Unknown"
@@ -88,6 +138,6 @@ object DeviceInsightManager {
         if (!isAudioDevice) return
         session.audioProfiles["A2DP"] = AudioProfileState.CONNECTED
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        session.isAudioPlaying = audioManager.isMusicActive
+        session.isAudioPlaying = audioManager.isMusicActive == true
     }
 }

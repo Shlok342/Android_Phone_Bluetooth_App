@@ -14,14 +14,14 @@ class FunctionsGet(private val btManager: BluetoothManagerWrapper) {
         )
     }
 
-    // FROM: getBondedBleAddresses()
+
     fun getBondedBleAddresses(): Set<String> {
         return btManager.getBondedAddresses { type ->
             type == BluetoothDevice.DEVICE_TYPE_LE || type == BluetoothDevice.DEVICE_TYPE_DUAL
         }
     }
 
-    // FROM: getBondedClassicAddresses()
+
     fun getBondedClassicAddresses(): Set<String> {
         return btManager.getBondedAddresses { type ->
             type == BluetoothDevice.DEVICE_TYPE_CLASSIC || type == BluetoothDevice.DEVICE_TYPE_DUAL

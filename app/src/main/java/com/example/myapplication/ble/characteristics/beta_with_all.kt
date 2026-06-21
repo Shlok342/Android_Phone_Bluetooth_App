@@ -23,11 +23,12 @@ interface BleEnvironment {
     fun addSubscribedCharacteristic(uuid: String)
     fun updateBatteryLevel(percent: Int)
     fun enqueue(action: () -> Unit)
+
     fun emitMessage(message: String)
     fun gattOperationComplete()
+    fun requestBondIfNeeded(status: Int)
 }
-
-// 2. Your modularized writer class
+// 2.Modularized writer class
 class BleCharacteristicWriter(private val env: BleEnvironment) {
     private lateinit var bleNotificationManager: BleNotificationManager
     private var lastNotifTime = 0L
@@ -160,6 +161,7 @@ class BleCharacteristicWriter(private val env: BleEnvironment) {
         } else {
             DeviceInsightManager.addDeviceEvent(gatt.device.address, "Write Failed: $uuid (status $status)")
             env.emitMessage("[Write Failed] $uuid (status $status)")
+            env.requestBondIfNeeded(status)
         }
         env.gattOperationComplete()}
     fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
@@ -183,6 +185,7 @@ class BleCharacteristicWriter(private val env: BleEnvironment) {
         val hex = value.joinToString(" ") { "%02X".format(it) }
         val text = try { String(value, Charsets.UTF_8) } catch (_: Exception) { "Unreadable" }
         env.emitMessage("[Read] ${characteristic.uuid} → Hex: $hex | Text: $text")
+        env.requestBondIfNeeded(status)
         env.gattOperationComplete()
     }
     fun setupCharacteristics(
@@ -308,12 +311,14 @@ class BleCharacteristicWriter(private val env: BleEnvironment) {
             val text = try {
                 String(value, Charsets.UTF_8)
             } catch (_: Exception) {
+                env.requestBondIfNeeded(status)
                 "Unreadable"
             }
 
             env.emitMessage(
                 "[Read] ${characteristic.uuid} → Hex: $hex | Text: $text"
             )
+
         }
 
         env.gattOperationComplete()

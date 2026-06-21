@@ -48,11 +48,16 @@ class DeviceAdapter(
         val currentSaved = savedItems.toList()
         val currentBonded = bondedAddresses.toSet()
 
+        // AFTER
         val base = when (activeFilterType) {
             FilterType.SAVED     -> currentSaved
             FilterType.FAVORITES -> currentDevices.filter { FavoriteStore.isFavorite(adapterContext, it.address) }
             FilterType.NEARBY    -> currentDevices.filter { it.address !in currentBonded }
             FilterType.NONE      -> currentDevices
+        }.filter { item ->
+            // Dual-mode devices are claimed by the Classic tab now — don't double-list them here.
+            try { deviceMap[item.address]?.type != BluetoothDevice.DEVICE_TYPE_DUAL }
+            catch (_: SecurityException) { true }
         }
         if (filterQuery.isEmpty()) return base
         return if (filterByMac) base.filter { it.address.contains(filterQuery, ignoreCase = true) }
